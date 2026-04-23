@@ -11,10 +11,10 @@
     return document.getElementById(id);
   }
 
-  function safeValue(id, fallback = '') {
+  function safeValue(id, fallback) {
     const el = getEl(id);
-    if (!el) return fallback;
-    return typeof el.value === 'string' ? el.value : fallback;
+    if (!el) return fallback || '';
+    return typeof el.value === 'string' ? el.value : (fallback || '');
   }
 
   function setValue(id, value) {
@@ -24,17 +24,17 @@
     }
   }
 
-  function setText(id, text) {
+  function setText(id, value) {
     const el = getEl(id);
     if (el) {
-      el.textContent = text;
+      el.textContent = value;
     }
   }
 
-  function setHtml(id, html) {
+  function setHtml(id, value) {
     const el = getEl(id);
     if (el) {
-      el.innerHTML = html;
+      el.innerHTML = value;
     }
   }
 
@@ -45,40 +45,46 @@
     }
   }
 
+  function normalizeOutputMode(raw) {
+    if (raw === 'wasm-only') return 'wasm-only';
+    if (raw === 'js-only') return 'js-only';
+    return 'wasm-js';
+  }
+
   function showStatus(message) {
     setText('buildStatus', '状態: ' + message);
   }
 
   function showLog(text) {
-    const el = getEl('buildLog');
-    if (!el) return;
+    const logEl = getEl('buildLog');
+    if (!logEl) return;
 
-    if ('value' in el) {
-      el.value = text || '';
+    if ('value' in logEl) {
+      logEl.value = text || '';
       return;
     }
 
-    el.textContent = text || '';
+    logEl.textContent = text || '';
   }
 
   function showOutput(text) {
-    const el = getEl('buildOutput');
-    if (!el) return;
+    const outputEl = getEl('buildOutput');
+    if (!outputEl) return;
 
-    if ('value' in el) {
-      el.value = text || '';
+    if ('value' in outputEl) {
+      outputEl.value = text || '';
       return;
     }
 
-    el.textContent = text || '';
+    outputEl.textContent = text || '';
   }
 
   function readSubFileName() {
-    return safeValue('subFileName').trim();
+    return safeValue('subFileName', '').trim();
   }
 
-  function readSubFileContent() {
-    return safeValue('subFileCode');
+  function readSubFileCode() {
+    return safeValue('subFileCode', '');
   }
 
   function escapeHtml(text) {
@@ -104,26 +110,25 @@
       return;
     }
 
-    const html = state.subFiles.map(function (file, index) {
-      const safeName = escapeHtml(file.name);
+    target.innerHTML = state.subFiles.map(function (file, index) {
       return [
         '<div class="file-item">',
-        `  <div><strong>${safeName}</strong></div>`,
-        `  <div>文字数: ${file.content.length}</div>`,
+        '  <div>',
+        '    <strong>' + escapeHtml(file.name) + '</strong>',
+        '    <div>文字数: ' + String((file.content || '').length) + '</div>',
+        '  </div>',
         '  <div class="file-item-actions">',
-        `    <button type="button" class="btn btn-muted" data-action="view-sub-file" data-index="${index}">表示</button>`,
-        `    <button type="button" class="btn btn-danger" data-action="remove-sub-file" data-index="${index}">削除</button>`,
+        '    <button type="button" class="btn btn-muted" data-action="view-sub-file" data-index="' + String(index) + '">表示</button>',
+        '    <button type="button" class="btn btn-danger" data-action="remove-sub-file" data-index="' + String(index) + '">削除</button>',
         '  </div>',
         '</div>'
       ].join('');
     }).join('');
-
-    target.innerHTML = html;
   }
 
   function addSubFile() {
     const name = readSubFileName();
-    const content = readSubFileContent();
+    const content = readSubFileCode();
 
     if (!name) {
       showStatus('補助ファイル名を入れてください');
@@ -162,7 +167,6 @@
 
     setValue('subFileName', '');
     setValue('subFileCode', '');
-
     renderSubFiles();
     showStatus('補助ファイルを追加しました');
   }
@@ -192,47 +196,28 @@
 
   function collectInput() {
     return {
-      projectName: safeValue('projectName', 'sample-rust-project').trim(),
-      entryPoint: safeValue('entryType', 'lib.rs').trim(),
+      projectName: safeValue('projectName', 'sample-rust-project').trim() || 'sample-rust-project',
+      entryPoint: safeValue('entryType', 'lib.rs').trim() || 'lib.rs',
       outputMode: normalizeOutputMode(safeValue('outputMode', 'wasm-js').trim()),
-      buildMode: safeValue('buildMode', 'release').trim(),
-      crateType: safeValue('crateType', 'cdylib').trim(),
+      buildMode: safeValue('buildMode', 'release').trim() || 'release',
+      crateType: safeValue('crateType', 'cdylib').trim() || 'cdylib',
       version: safeValue('version', '0.1.0').trim() || '0.1.0',
       edition: safeValue('edition', '2021').trim() || '2021',
-      dependenciesText: readDependenciesText(),
-      featuresText: safeValue('featuresText', ''),
+      dependenciesText: safeValue('dependenciesText', '').trim(),
+      featuresText: safeValue('featuresText', '').trim(),
       cargoTomlText: safeValue('cargoToml', ''),
       mainRustCode: safeValue('mainRustCode', ''),
       subFiles: state.subFiles.slice()
     };
   }
 
-  function readDependenciesText() {
-    const dependenciesArea = getEl('dependenciesText');
-    if (dependenciesArea) {
-      return dependenciesArea.value || '';
-    }
-
-    const cargoToml = safeValue('cargoToml', '');
-    const marker = '[dependencies]';
-    const idx = cargoToml.indexOf(marker);
-
-    if (idx === -1) {
-      return 'wasm-bindgen = "0.2"';
-    }
-
-    const slice = cargoToml.slice(idx + marker.length).trim();
-    if (!slice) {
-      return 'wasm-bindgen = "0.2"';
-    }
-
-    return slice;
-  }
-
-  function normalizeOutputMode(raw) {
-    if (raw === 'wasm-only') return 'wasm-only';
-    if (raw === 'js-only') return 'js-only';
-    return 'wasm-js';
+  function lockUi(locked) {
+    setDisabled('runBuildButton', locked);
+    setDisabled('addSubFileButton', locked);
+    setDisabled('clearAllButton', locked);
+    setDisabled('downloadOutputButton', locked);
+    setDisabled('downloadLogButton', locked);
+    setDisabled('copyOutputButton', locked);
   }
 
   function runBuild() {
@@ -281,15 +266,6 @@
     }
   }
 
-  function lockUi(locked) {
-    setDisabled('runBuildButton', locked);
-    setDisabled('addSubFileButton', locked);
-    setDisabled('clearAllButton', locked);
-    setDisabled('downloadOutputButton', locked);
-    setDisabled('downloadLogButton', locked);
-    setDisabled('copyOutputButton', locked);
-  }
-
   function clearAll() {
     state.subFiles = [];
     state.lastBuildResult = null;
@@ -301,6 +277,8 @@
     setValue('crateType', 'cdylib');
     setValue('version', '0.1.0');
     setValue('edition', '2021');
+    setValue('dependenciesText', 'wasm-bindgen = "0.2"');
+    setValue('featuresText', '');
     setValue('cargoToml', [
       '[package]',
       'name = "sample-rust-project"',
@@ -313,18 +291,17 @@
       '[dependencies]',
       'wasm-bindgen = "0.2"'
     ].join('\n'));
-    setValue('dependenciesText', 'wasm-bindgen = "0.2"');
-    setValue('featuresText', '');
     setValue('mainRustCode', [
       'use wasm_bindgen::prelude::*;',
       '',
       '#[wasm_bindgen]',
-      'pub fn greet() -> String {',
-      '    "hello wasm".to_string()',
+      'pub fn greet(name: &str) -> String {',
+      '    format!("hello {}", name)',
       '}'
     ].join('\n'));
     setValue('subFileName', '');
     setValue('subFileCode', '');
+
     showLog('');
     showOutput('');
     setHtml('buildSummary', '');
@@ -332,20 +309,57 @@
     showStatus('初期化しました');
   }
 
+  function downloadByAnchor(filename, content, mimeType) {
+    const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }
+
   function downloadOutput() {
-    if (!state.lastBuildResult || !state.lastBuildResult.outputText) {
+    if (!state.lastBuildResult) {
       showStatus('保存する出力がありません');
       return;
     }
 
-    if (global.RustBuildEngine && typeof global.RustBuildEngine.downloadTextFile === 'function') {
-      const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-output';
-      global.RustBuildEngine.downloadTextFile(projectName + '-output.txt', state.lastBuildResult.outputText);
+    const outputFiles = Array.isArray(state.lastBuildResult.outputFiles)
+      ? state.lastBuildResult.outputFiles
+      : [];
+
+    if (!outputFiles.length) {
+      showStatus('保存する出力がありません');
+      return;
+    }
+
+    if (outputFiles.length === 1) {
+      downloadByAnchor(
+        outputFiles[0].name,
+        outputFiles[0].content || '',
+        outputFiles[0].type || 'text/plain;charset=utf-8'
+      );
       showStatus('出力を保存しました');
       return;
     }
 
-    showStatus('保存機能が見つかりません');
+    const text = outputFiles.map(function (file) {
+      return [
+        '===== ' + file.name + ' =====',
+        file.content || ''
+      ].join('\n');
+    }).join('\n\n');
+
+    const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-output';
+    downloadByAnchor(projectName + '-bundle.txt', text, 'text/plain;charset=utf-8');
+    showStatus('複数出力をまとめて保存しました');
   }
 
   function downloadLog() {
@@ -354,14 +368,9 @@
       return;
     }
 
-    if (global.RustBuildEngine && typeof global.RustBuildEngine.downloadTextFile === 'function') {
-      const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-build';
-      global.RustBuildEngine.downloadTextFile(projectName + '-build-log.txt', state.lastBuildResult.logText);
-      showStatus('ログを保存しました');
-      return;
-    }
-
-    showStatus('保存機能が見つかりません');
+    const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-build';
+    downloadByAnchor(projectName + '-build-log.txt', state.lastBuildResult.logText, 'text/plain;charset=utf-8');
+    showStatus('ログを保存しました');
   }
 
   async function copyOutput() {
@@ -404,8 +413,7 @@
       if (!(target instanceof HTMLElement)) return;
 
       const action = target.getAttribute('data-action');
-      const indexText = target.getAttribute('data-index');
-      const index = Number(indexText);
+      const index = Number(target.getAttribute('data-index'));
 
       if (!action || Number.isNaN(index)) return;
 
@@ -426,7 +434,7 @@
 
     if (goHome) {
       goHome.addEventListener('click', function () {
-        location.href = './index.html';
+        location.href = '../index.html';
       });
     }
 
@@ -437,23 +445,29 @@
     }
   }
 
-  function ensureMissingFields() {
+  function ensureOptionalFields() {
     if (!getEl('version')) {
       console.warn('version フィールドが見つかりません');
     }
     if (!getEl('edition')) {
       console.warn('edition フィールドが見つかりません');
     }
+    if (!getEl('dependenciesText')) {
+      console.warn('dependenciesText フィールドが見つかりません');
+    }
+    if (!getEl('featuresText')) {
+      console.warn('featuresText フィールドが見つかりません');
+    }
     if (!getEl('buildSummary')) {
       console.warn('buildSummary フィールドが見つかりません');
     }
     if (!getEl('downloadLogButton')) {
-      console.warn('downloadLogButton フィールドが見つかりません');
+      console.warn('downloadLogButton が見つかりません');
     }
   }
 
   function init() {
-    ensureMissingFields();
+    ensureOptionalFields();
     bindButtons();
     bindSubFileActions();
     bindNavigation();
