@@ -1,22 +1,23 @@
 (function (global) {
   'use strict';
 
-  function getEngine() {
-    return global.RustBuildEngine || null;
-  }
-
-  function getVirtualFs() {
-    return global.RustVirtualFs || null;
-  }
-
-  function getOutputManager() {
-    return global.RustOutputManager || null;
-  }
-
   function safeString(value, fallback = '') {
     if (typeof value === 'string') return value;
     if (value === null || value === undefined) return fallback;
     return String(value);
+  }
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function nowIso() {
+    return new Date().toISOString();
+  }
+
+  function makeId(prefix) {
+    const rand = Math.random().toString(36).slice(2, 10);
+    return prefix + '-' + Date.now() + '-' + rand;
   }
 
   function normalizeLineBreaks(text) {
@@ -27,19 +28,97 @@
     return normalizeLineBreaks(text).trim();
   }
 
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
+  function validateProjectName(name) {
+    const value = trimOrEmpty(name);
+    if (!value) return 'プロジェクト名が空です。';
+    if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
+      return 'プロジェクト名は英数字・ハイフン・アンダースコアのみ使用できます。';
+    }
+    return '';
   }
 
-  function buildFallbackConfig(input) {
+  function validateVersion(version) {
+    const value = trimOrEmpty(version);
+    if (!value) return 'version が空です。';
+    if (!/^\d+\.\d+\.\d+$/.test(value)) {
+      return 'version は 0.1.0 の形式で入力してください。';
+    }
+    return '';
+  }
+
+  function validateEdition(edition) {
+    const value = trimOrEmpty(edition);
+    const allowed = ['2015', '2018', '2021', '2024'];
+    if (!value) return 'edition が空です。';
+    if (!allowed.includes(value)) {
+      return 'edition は 2015 / 2018 / 2021 / 2024 のいずれかにしてください。';
+    }
+    return '';
+  }
+
+  function validateCrateType(crateType) {
+    const value = trimOrEmpty(crateType);
+    const allowed = ['cdylib', 'rlib', 'bin'];
+    if (!value) return 'crate-type が空です。';
+    if (!allowed.includes(value)) {
+      return 'crate-type は cdylib / rlib / bin のいずれかにしてください。';
+    }
+    return '';
+  }
+
+  function validateBuildMode(buildMode) {
+    const value = trimOrEmpty(buildMode);
+    const allowed = ['debug', 'release'];
+    if (!value) return 'ビルドモードが空です。';
+    if (!allowed.includes(value)) {
+      return 'ビルドモードは debug / release のいずれかにしてください。';
+    }
+    return '';
+  }
+
+  function validateOutputMode(outputMode) {
+    const value = trimOrEmpty(outputMode);
+    const allowed = ['wasm-js', 'wasm-only', 'js-only'];
+    if (!value) return '出力形式が空です。';
+    if (!allowed.includes(value)) {
+      return '出力形式が不正です。';
+    }
+    return '';
+  }
+
+  function inferEntryTarget(entryPoint) {
+    const value = trimOrEmpty(entryPoint).toLowerCase();
+    if (value.endsWith('main.rs')) return 'main';
+    return 'lib';
+  }
+
+  function normalizeDependencies(text) {
+    return normalizeLineBreaks(text)
+      .split('\n')
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(Boolean);
+  }
+
+  function normalizeFeatures(text) {
+    return normalizeLineBreaks(text)
+      .split('\n')
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(Boolean);
+  }
+
+  function collectConfig(input) {
     const source = input || {};
 
     return {
-      buildId: 'rust-build-fallback-' + Date.now(),
-      timestamp: new Date().toISOString(),
+      buildId: makeId('rust-build'),
+      timestamp: nowIso(),
       projectName: trimOrEmpty(source.projectName || 'sample-rust-project'),
       entryPoint: trimOrEmpty(source.entryPoint || 'lib.rs'),
-      entryTarget: trimOrEmpty(source.entryPoint || 'lib.rs').endsWith('main.rs') ? 'main' : 'lib',
+      entryTarget: inferEntryTarget(source.entryPoint || 'lib.rs'),
       outputMode: trimOrEmpty(source.outputMode || 'wasm-js'),
       buildMode: trimOrEmpty(source.buildMode || 'release'),
       crateType: trimOrEmpty(source.crateType || 'cdylib'),
@@ -47,7 +126,6 @@
       edition: trimOrEmpty(source.edition || '2021'),
       dependenciesText: normalizeLineBreaks(source.dependenciesText || 'wasm-bindgen = "0.2"'),
       featuresText: normalizeLineBreaks(source.featuresText || ''),
-      cargoTomlText: normalizeLineBreaks(source.cargoTomlText || ''),
       mainRustCode: normalizeLineBreaks(source.mainRustCode || ''),
       subFiles: Array.isArray(source.subFiles) ? clone(source.subFiles) : []
     };
@@ -57,11 +135,23 @@
     const errors = [];
     const warnings = [];
 
-    if (!trimOrEmpty(config.projectName)) {
-      errors.push('プロジェクト名が空です。');
-    } else if (!/^[a-zA-Z0-9_-]+$/.test(config.projectName)) {
-      errors.push('プロジェクト名は英数字・ハイフン・アンダースコアのみ使用できます。');
-    }
+    const projectError = validateProjectName(config.projectName);
+    if (projectError) errors.push(projectError);
+
+    const versionError = validateVersion(config.version);
+    if (versionError) errors.push(versionError);
+
+    const editionError = validateEdition(config.edition);
+    if (editionError) errors.push(editionError);
+
+    const crateTypeError = validateCrateType(config.crateType);
+    if (crateTypeError) errors.push(crateTypeError);
+
+    const buildModeError = validateBuildMode(config.buildMode);
+    if (buildModeError) errors.push(buildModeError);
+
+    const outputModeError = validateOutputMode(config.outputMode);
+    if (outputModeError) errors.push(outputModeError);
 
     if (!trimOrEmpty(config.entryPoint)) {
       errors.push('エントリーポイントが空です。');
@@ -71,233 +161,237 @@
       errors.push('メインRustコードが空です。');
     }
 
-    if (!trimOrEmpty(config.version)) {
-      errors.push('version が空です。');
+    if (trimOrEmpty(config.mainRustCode) && !config.mainRustCode.includes('fn ')) {
+      warnings.push('Rustコードに関数定義が見当たりません。');
     }
 
-    if (!trimOrEmpty(config.edition)) {
-      errors.push('edition が空です。');
-    }
-
-    if (!trimOrEmpty(config.crateType)) {
-      errors.push('crate-type が空です。');
-    }
-
-    if (!trimOrEmpty(config.buildMode)) {
-      errors.push('buildMode が空です。');
-    }
-
-    if (!trimOrEmpty(config.outputMode)) {
-      errors.push('outputMode が空です。');
-    }
-
-    if (config.entryTarget === 'lib' && !config.mainRustCode.includes('wasm_bindgen')) {
+    if (config.entryTarget === 'lib' && trimOrEmpty(config.mainRustCode) && !config.mainRustCode.includes('wasm_bindgen')) {
       warnings.push('lib.rs ですが wasm_bindgen の記述が見当たりません。');
     }
 
-    if (!config.mainRustCode.includes('fn ')) {
-      warnings.push('関数定義が見当たりません。');
-    }
-
-    return { errors, warnings };
-  }
-
-  function buildVirtualFsFromModules(config) {
-    const virtualFsModule = getVirtualFs();
-
-    if (virtualFsModule && typeof virtualFsModule.createVirtualFs === 'function') {
-      return virtualFsModule.createVirtualFs(config);
-    }
-
-    const files = {};
-    const entryPath = config.entryPoint === 'main.rs' ? '/src/main.rs' : '/src/lib.rs';
-
-    files['/Cargo.toml'] = [
-      '[package]',
-      `name = "${config.projectName}"`,
-      `version = "${config.version}"`,
-      `edition = "${config.edition}"`,
-      '',
-      config.entryTarget === 'lib'
-        ? '[lib]\ncrate-type = ["' + config.crateType + '"]'
-        : '',
-      '',
-      '[dependencies]',
-      config.dependenciesText || 'wasm-bindgen = "0.2"'
-    ].join('\n').replace(/\n{3,}/g, '\n\n');
-
-    files[entryPath] = config.mainRustCode;
-
-    const subFiles = Array.isArray(config.subFiles) ? config.subFiles : [];
-    for (const file of subFiles) {
-      if (!file || !file.name) continue;
-      files['/src/' + String(file.name).replace(/^src\//, '').replace(/^\/+/, '')] = normalizeLineBreaks(file.content || '');
-    }
+    normalizeDependencies(config.dependenciesText).forEach(function (line) {
+      if (!line.includes('=')) {
+        warnings.push('dependencies の形式を確認してください: ' + line);
+      }
+    });
 
     return {
-      ok: true,
-      entryPath,
-      files,
-      errors: [],
-      warnings: []
+      errors: errors,
+      warnings: warnings
     };
   }
 
-  function buildOutputFiles(config, virtualFsResult, validation) {
-    const outputManager = getOutputManager();
-
-    if (outputManager && typeof outputManager.createOutputFiles === 'function') {
-      return outputManager.createOutputFiles(config, virtualFsResult, validation);
+  function buildVirtualFs(config) {
+    if (!global.RustVirtualFs || typeof global.RustVirtualFs.createVirtualFs !== 'function') {
+      return {
+        ok: false,
+        entryPath: '',
+        files: {},
+        errors: ['RustVirtualFs.createVirtualFs が見つかりません。'],
+        warnings: []
+      };
     }
 
-    const projectName = config.projectName || 'rust-output';
-    const outputFiles = [];
+    return global.RustVirtualFs.createVirtualFs(config);
+  }
 
-    outputFiles.push({
+  function makeLoaderJs(config, ok) {
+    const functionName = 'load' + pascalCase(config.projectName || 'rust-project');
+
+    return [
+      '// mock loader generated by browser-build-workshop',
+      'export async function ' + functionName + '() {',
+      '  return {',
+      '    ok: ' + (ok ? 'true' : 'false') + ',',
+      '    project: ' + JSON.stringify(config.projectName) + ',',
+      '    buildId: ' + JSON.stringify(config.buildId) + ',',
+      '    mode: ' + JSON.stringify(config.buildMode),
+      '  };',
+      '}'
+    ].join('\n');
+  }
+
+  function makeMockWasm(config) {
+    return [
+      '; mock wasm placeholder',
+      '; project=' + config.projectName,
+      '; build=' + config.buildId,
+      '; mode=' + config.buildMode,
+      '; crate-type=' + config.crateType
+    ].join('\n');
+  }
+
+  function pascalCase(value) {
+    return safeString(value)
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map(function (part) {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join('') || 'RustProject';
+  }
+
+  function makeOutputFiles(config, virtualFs, validation) {
+    const files = [];
+    const baseName = config.projectName || 'rust-output';
+    const ok = validation.errors.length === 0;
+
+    files.push({
       name: 'build-log.txt',
-      type: 'text/plain',
-      content: [
-        'Rust Build Log',
-        `project: ${projectName}`,
-        `status: ${validation.errors.length === 0 ? 'success' : 'error'}`
-      ].join('\n')
+      type: 'text/plain;charset=utf-8',
+      content: makeLogText(config, virtualFs, validation)
+    });
+
+    files.push({
+      name: 'Cargo.toml',
+      type: 'text/plain;charset=utf-8',
+      content: virtualFs.files['/Cargo.toml'] || ''
     });
 
     if (config.outputMode === 'wasm-js' || config.outputMode === 'wasm-only') {
-      outputFiles.push({
-        name: `${projectName}.wasm`,
+      files.push({
+        name: baseName + '.wasm',
         type: 'application/wasm',
-        content: `mock wasm output for ${projectName}`
+        content: makeMockWasm(config)
       });
     }
 
     if (config.outputMode === 'wasm-js' || config.outputMode === 'js-only') {
-      outputFiles.push({
-        name: `${projectName}.loader.js`,
-        type: 'application/javascript',
-        content: `export function load(){ return "${projectName}"; }`
+      files.push({
+        name: baseName + '.loader.js',
+        type: 'application/javascript;charset=utf-8',
+        content: makeLoaderJs(config, ok)
       });
     }
 
-    outputFiles.push({
-      name: 'Cargo.toml',
-      type: 'text/plain',
-      content: (virtualFsResult.files && virtualFsResult.files['/Cargo.toml']) || ''
-    });
-
-    return outputFiles;
+    return files;
   }
 
-  function buildLogText(config, validation, virtualFsResult, outputFiles) {
+  function makeLogText(config, virtualFs, validation) {
     const lines = [];
 
     lines.push('Rustビルドを開始しました。');
-    lines.push(`project: ${config.projectName}`);
-    lines.push(`entry: ${config.entryPoint}`);
-    lines.push(`entry target: ${config.entryTarget}`);
-    lines.push(`build mode: ${config.buildMode}`);
-    lines.push(`crate type: ${config.crateType}`);
-    lines.push(`output mode: ${config.outputMode}`);
-    lines.push(`sub files: ${Array.isArray(config.subFiles) ? config.subFiles.length : 0}`);
+    lines.push('build id: ' + config.buildId);
+    lines.push('timestamp: ' + config.timestamp);
+    lines.push('project: ' + config.projectName);
+    lines.push('entry: ' + config.entryPoint);
+    lines.push('entry target: ' + config.entryTarget);
+    lines.push('build mode: ' + config.buildMode);
+    lines.push('crate type: ' + config.crateType);
+    lines.push('output mode: ' + config.outputMode);
     lines.push('');
 
-    if (validation.errors.length === 0 && virtualFsResult.errors.length === 0) {
-      lines.push('入力検証を通過しました。');
-      lines.push('仮想FS構築に成功しました。');
+    lines.push('virtual fs:');
+    Object.keys(virtualFs.files || {}).sort().forEach(function (path) {
+      lines.push('- ' + path);
+    });
+
+    lines.push('');
+
+    if (validation.errors.length) {
+      lines.push('errors:');
+      validation.errors.forEach(function (item) {
+        lines.push('- ' + item);
+      });
     } else {
-      lines.push('入力または仮想FS構築に失敗しました。');
-    }
-
-    if (validation.warnings.length || virtualFsResult.warnings.length) {
-      lines.push('');
-      lines.push('警告:');
-      for (const item of validation.warnings.concat(virtualFsResult.warnings)) {
-        lines.push(`- ${item}`);
-      }
-    }
-
-    if (validation.errors.length || virtualFsResult.errors.length) {
-      lines.push('');
-      lines.push('エラー:');
-      for (const item of validation.errors.concat(virtualFsResult.errors)) {
-        lines.push(`- ${item}`);
-      }
+      lines.push('errors:');
+      lines.push('- なし');
     }
 
     lines.push('');
-    lines.push('仮想FS:');
-    for (const path of Object.keys(virtualFsResult.files || {}).sort()) {
-      lines.push(`- ${path}`);
-    }
 
-    lines.push('');
-    lines.push('生成ファイル:');
-    for (const file of outputFiles) {
-      lines.push(`- ${file.name}`);
+    if (validation.warnings.length) {
+      lines.push('warnings:');
+      validation.warnings.forEach(function (item) {
+        lines.push('- ' + item);
+      });
+    } else {
+      lines.push('warnings:');
+      lines.push('- なし');
     }
 
     return lines.join('\n');
   }
 
-  function buildOutputText(config, virtualFsResult, validation) {
-    const outputManager = getOutputManager();
-
-    if (outputManager && typeof outputManager.buildReadableOutput === 'function') {
-      return outputManager.buildReadableOutput(config, virtualFsResult, validation);
-    }
-
+  function makeReadableOutput(config, virtualFs, validation, outputFiles) {
     const lines = [];
 
     lines.push('// Rust build result');
-    lines.push(`// project: ${config.projectName}`);
-    lines.push(`// status: ${validation.errors.length === 0 && virtualFsResult.errors.length === 0 ? 'success' : 'error'}`);
+    lines.push('// build id: ' + config.buildId);
+    lines.push('// project: ' + config.projectName);
+    lines.push('// entry: ' + config.entryPoint);
+    lines.push('// build mode: ' + config.buildMode);
+    lines.push('// crate type: ' + config.crateType);
+    lines.push('// output mode: ' + config.outputMode);
+    lines.push('// status: ' + (validation.errors.length ? 'error' : 'success'));
     lines.push('');
-    lines.push('// files');
 
-    for (const path of Object.keys(virtualFsResult.files || {}).sort()) {
+    lines.push('// generated files');
+    outputFiles.forEach(function (file) {
+      lines.push('// - ' + file.name);
+    });
+
+    lines.push('');
+    lines.push('// Cargo.toml');
+    lines.push(virtualFs.files['/Cargo.toml'] || '');
+
+    Object.keys(virtualFs.files || {})
+      .sort()
+      .filter(function (path) {
+        return path !== '/Cargo.toml';
+      })
+      .forEach(function (path) {
+        lines.push('');
+        lines.push('// file: ' + path);
+        lines.push(virtualFs.files[path]);
+      });
+
+    if (validation.errors.length) {
       lines.push('');
-      lines.push(`// ${path}`);
-      lines.push(virtualFsResult.files[path]);
+      lines.push('// errors');
+      validation.errors.forEach(function (item) {
+        lines.push('// - ' + item);
+      });
+    }
+
+    if (validation.warnings.length) {
+      lines.push('');
+      lines.push('// warnings');
+      validation.warnings.forEach(function (item) {
+        lines.push('// - ' + item);
+      });
     }
 
     return lines.join('\n');
   }
 
-  function buildSummaryHtml(config, validation, virtualFsResult, outputFiles) {
-    const outputManager = getOutputManager();
-
-    if (outputManager && typeof outputManager.buildSummaryHtml === 'function') {
-      return outputManager.buildSummaryHtml(config, validation, virtualFsResult, outputFiles);
+  function buildSummaryHtml(config, validation, outputFiles, virtualFs) {
+    function makeList(items) {
+      if (!items.length) return '<p>なし</p>';
+      return '<ul>' + items.map(function (item) {
+        return '<li>' + escapeHtml(item) + '</li>';
+      }).join('') + '</ul>';
     }
 
-    const errors = validation.errors.concat(virtualFsResult.errors);
-    const warnings = validation.warnings.concat(virtualFsResult.warnings);
-
-    const errorHtml = errors.length
-      ? `<ul>${errors.map(function (item) { return `<li>${escapeHtml(item)}</li>`; }).join('')}</ul>`
-      : '<p>なし</p>';
-
-    const warningHtml = warnings.length
-      ? `<ul>${warnings.map(function (item) { return `<li>${escapeHtml(item)}</li>`; }).join('')}</ul>`
-      : '<p>なし</p>';
-
-    const fileHtml = outputFiles.length
-      ? `<ul>${outputFiles.map(function (file) { return `<li>${escapeHtml(file.name)}</li>`; }).join('')}</ul>`
-      : '<p>なし</p>';
+    const paths = Object.keys(virtualFs.files || {}).sort();
 
     return [
       '<div class="rust-build-summary">',
-      `<p><strong>プロジェクト:</strong> ${escapeHtml(config.projectName)}</p>`,
-      `<p><strong>entry:</strong> ${escapeHtml(config.entryPoint)}</p>`,
-      `<p><strong>build-mode:</strong> ${escapeHtml(config.buildMode)}</p>`,
-      `<p><strong>crate-type:</strong> ${escapeHtml(config.crateType)}</p>`,
-      `<p><strong>output-mode:</strong> ${escapeHtml(config.outputMode)}</p>`,
+      '<p><strong>ビルドID:</strong> ' + escapeHtml(config.buildId) + '</p>',
+      '<p><strong>状態:</strong> ' + escapeHtml(validation.errors.length ? 'error' : 'success') + '</p>',
+      '<p><strong>プロジェクト:</strong> ' + escapeHtml(config.projectName) + '</p>',
+      '<p><strong>entry:</strong> ' + escapeHtml(config.entryPoint) + '</p>',
+      '<p><strong>crate-type:</strong> ' + escapeHtml(config.crateType) + '</p>',
+      '<p><strong>build-mode:</strong> ' + escapeHtml(config.buildMode) + '</p>',
+      '<p><strong>output-mode:</strong> ' + escapeHtml(config.outputMode) + '</p>',
+      '<h4>仮想FS</h4>',
+      makeList(paths),
       '<h4>エラー</h4>',
-      errorHtml,
+      makeList(validation.errors),
       '<h4>警告</h4>',
-      warningHtml,
+      makeList(validation.warnings),
       '<h4>生成ファイル</h4>',
-      fileHtml,
+      makeList(outputFiles.map(function (file) { return file.name; })),
       '</div>'
     ].join('');
   }
@@ -312,38 +406,37 @@
   }
 
   function runBuild(input) {
-    const engine = getEngine();
-
-    if (engine && typeof engine.runBuild === 'function') {
-      return engine.runBuild(input);
-    }
-
-    const config = buildFallbackConfig(input);
+    const config = collectConfig(input);
     const validation = validateConfig(config);
-    const virtualFsResult = buildVirtualFsFromModules(config);
-    const outputFiles = buildOutputFiles(config, virtualFsResult, validation);
-    const logText = buildLogText(config, validation, virtualFsResult, outputFiles);
-    const outputText = buildOutputText(config, virtualFsResult, validation);
-    const summaryHtml = buildSummaryHtml(config, validation, virtualFsResult, outputFiles);
+    const virtualFs = buildVirtualFs(config);
+
+    Array.prototype.push.apply(validation.errors, virtualFs.errors || []);
+    Array.prototype.push.apply(validation.warnings, virtualFs.warnings || []);
+
+    const outputFiles = makeOutputFiles(config, virtualFs, validation);
+    const logText = makeLogText(config, virtualFs, validation);
+    const outputText = makeReadableOutput(config, virtualFs, validation, outputFiles);
+    const summaryHtml = buildSummaryHtml(config, validation, outputFiles, virtualFs);
 
     return {
-      ok: validation.errors.length === 0 && virtualFsResult.errors.length === 0,
-      engineVersion: 'controller-fallback-1.0.0',
+      ok: validation.errors.length === 0,
       buildId: config.buildId,
       timestamp: config.timestamp,
-      status: validation.errors.length === 0 && virtualFsResult.errors.length === 0 ? 'success' : 'error',
+      status: validation.errors.length === 0 ? 'success' : 'error',
       config: clone(config),
-      virtualFs: clone(virtualFsResult.files || {}),
-      errors: validation.errors.concat(virtualFsResult.errors),
-      warnings: validation.warnings.concat(virtualFsResult.warnings),
-      logText,
-      outputText,
-      outputFiles,
-      summaryHtml
+      virtualFs: clone(virtualFs),
+      errors: clone(validation.errors),
+      warnings: clone(validation.warnings),
+      outputFiles: clone(outputFiles),
+      logText: logText,
+      outputText: outputText,
+      summaryHtml: summaryHtml
     };
   }
 
   global.RustBuildController = {
-    runBuild
+    collectConfig: collectConfig,
+    validateConfig: validateConfig,
+    runBuild: runBuild
   };
 })(window);
