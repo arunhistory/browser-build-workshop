@@ -11,217 +11,168 @@
     return safeString(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
-  function trim(text) {
+  function trimOrEmpty(text) {
     return normalizeLineBreaks(text).trim();
   }
 
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
-  }
-
   function normalizePath(path) {
-    let value = trim(path);
+    let value = trimOrEmpty(path);
 
     if (!value) return '';
 
     value = value.replace(/\\/g, '/');
+    value = value.replace(/\/+/g, '/');
 
     if (!value.startsWith('/')) {
       value = '/' + value;
     }
 
-    value = value.replace(/\/+/g, '/');
-
     return value;
   }
 
-  function normalizeSrcPath(path) {
-    let value = trim(path);
+  function normalizeSourcePath(path) {
+    let value = trimOrEmpty(path);
 
     if (!value) return '';
 
-    value = value.replace(/\\/g, '/');
     value = value.replace(/^\/+/, '');
     value = value.replace(/^src\//, '');
+    value = value.replace(/\\/g, '/');
+    value = value.replace(/\/+/g, '/');
 
-    return normalizePath('/src/' + value);
-  }
-
-  function createEmptyFs() {
-    return {
-      files: {},
-      order: []
-    };
-  }
-
-  function hasFile(fs, path) {
-    const normalized = normalizePath(path);
-    return !!(fs && fs.files && Object.prototype.hasOwnProperty.call(fs.files, normalized));
-  }
-
-  function writeFile(fs, path, content) {
-    const normalized = normalizePath(path);
-    if (!normalized) {
-      throw new Error('ファイルパスが空です');
-    }
-
-    if (!fs.files[normalized]) {
-      fs.order.push(normalized);
-    }
-
-    fs.files[normalized] = {
-      path: normalized,
-      content: normalizeLineBreaks(content)
-    };
-
-    return fs.files[normalized];
-  }
-
-  function readFile(fs, path) {
-    const normalized = normalizePath(path);
-    if (!hasFile(fs, normalized)) return '';
-    return fs.files[normalized].content;
-  }
-
-  function deleteFile(fs, path) {
-    const normalized = normalizePath(path);
-    if (!hasFile(fs, normalized)) return false;
-
-    delete fs.files[normalized];
-    fs.order = fs.order.filter(function (item) {
-      return item !== normalized;
-    });
-
-    return true;
-  }
-
-  function listFiles(fs) {
-    return fs.order.map(function (path) {
-      return clone(fs.files[path]);
-    });
+    return '/src/' + value;
   }
 
   function buildCargoToml(config) {
-    const projectName = trim(config.projectName || 'sample-rust-project');
-    const version = trim(config.version || '0.1.0');
-    const edition = trim(config.edition || '2021');
-    const crateType = trim(config.crateType || 'cdylib');
-    const dependenciesText = normalizeLineBreaks(config.dependenciesText || 'wasm-bindgen = "0.2"').trim();
-    const featuresText = normalizeLineBreaks(config.featuresText || '').trim();
-    const entryPoint = trim(config.entryPoint || 'lib.rs');
-
     const lines = [];
 
     lines.push('[package]');
-    lines.push('name = "' + projectName + '"');
-    lines.push('version = "' + version + '"');
-    lines.push('edition = "' + edition + '"');
+    lines.push(`name = "${safeString(config.projectName || 'sample-rust-project').trim()}"`);
+    lines.push(`version = "${safeString(config.version || '0.1.0').trim()}"`);
+    lines.push(`edition = "${safeString(config.edition || '2021').trim()}"`);
     lines.push('');
 
-    if (entryPoint.endsWith('lib.rs')) {
+    if (safeString(config.entryTarget || 'lib') === 'lib') {
       lines.push('[lib]');
-      lines.push('crate-type = ["' + crateType + '"]');
+      lines.push(`crate-type = ["${safeString(config.crateType || 'cdylib').trim()}"]`);
       lines.push('');
     }
 
-    if (dependenciesText) {
+    const dependencies = normalizeDependencyLines(config.dependenciesText || '');
+    if (dependencies.length) {
       lines.push('[dependencies]');
-      lines.push(dependenciesText);
+      lines.push(...dependencies);
       lines.push('');
     }
 
-    if (featuresText) {
+    const features = normalizeFeatureLines(config.featuresText || '');
+    if (features.length) {
       lines.push('[features]');
-      lines.push(featuresText);
+      lines.push(...features);
       lines.push('');
     }
 
     return lines.join('\n').trim() + '\n';
   }
 
-  function createProjectFs(input) {
-    const config = input || {};
-    const fs = createEmptyFs();
-
-    const entryPoint = trim(config.entryPoint || 'lib.rs');
-    const mainRustCode = normalizeLineBreaks(config.mainRustCode || '');
-    const subFiles = Array.isArray(config.subFiles) ? config.subFiles : [];
-    const cargoTomlText = trim(config.cargoTomlText || '');
-
-    const entryPath = normalizeSrcPath(entryPoint || 'lib.rs');
-    const cargoPath = '/Cargo.toml';
-
-    writeFile(fs, cargoPath, cargoTomlText || buildCargoToml(config));
-    writeFile(fs, entryPath, mainRustCode);
-
-    subFiles.forEach(function (file) {
-      if (!file || typeof file !== 'object') return;
-
-      const rawName = trim(file.name || '');
-      if (!rawName) return;
-
-      const filePath = normalizeSrcPath(rawName);
-      const fileContent = normalizeLineBreaks(file.content || '');
-
-      writeFile(fs, filePath, fileContent);
-    });
-
-    return fs;
+  function normalizeDependencyLines(text) {
+    return normalizeLineBreaks(text)
+      .split('\n')
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(Boolean);
   }
 
-  function exportPlainObject(fs) {
-    const result = {};
-
-    fs.order.forEach(function (path) {
-      result[path] = fs.files[path].content;
-    });
-
-    return result;
+  function normalizeFeatureLines(text) {
+    return normalizeLineBreaks(text)
+      .split('\n')
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(Boolean);
   }
 
-  function validateFs(fs, entryPoint) {
-    const errors = [];
+  function makeEntryPath(entryPoint) {
+    const point = trimOrEmpty(entryPoint || 'lib.rs');
+    if (!point) return '/src/lib.rs';
+    return normalizeSourcePath(point);
+  }
+
+  function createVirtualFs(config) {
+    const files = {};
     const warnings = [];
+    const errors = [];
 
-    if (!hasFile(fs, '/Cargo.toml')) {
-      errors.push('/Cargo.toml がありません');
+    const entryPath = makeEntryPath(config.entryPoint);
+    const cargoToml = buildCargoToml(config);
+    const mainRustCode = normalizeLineBreaks(config.mainRustCode || '');
+
+    files['/Cargo.toml'] = cargoToml;
+
+    if (!mainRustCode.trim()) {
+      errors.push('メインRustコードが空です。');
+    } else {
+      files[entryPath] = mainRustCode;
     }
 
-    const entryPath = normalizeSrcPath(entryPoint || 'lib.rs');
-    if (!hasFile(fs, entryPath)) {
-      errors.push('エントリーファイルがありません: ' + entryPath);
-    }
+    const subFiles = Array.isArray(config.subFiles) ? config.subFiles : [];
+    const usedPaths = new Set(['/Cargo.toml', entryPath]);
 
-    const fileList = listFiles(fs);
-    if (!fileList.length) {
-      errors.push('仮想FSが空です');
-    }
+    for (const file of subFiles) {
+      if (!file || typeof file !== 'object') continue;
 
-    fileList.forEach(function (file) {
-      if (!file.content.trim()) {
-        warnings.push('中身が空のファイルがあります: ' + file.path);
+      const rawName = trimOrEmpty(file.name || '');
+      const rawContent = normalizeLineBreaks(file.content || '');
+
+      if (!rawName) {
+        warnings.push('名前が空の補助ファイルをスキップしました。');
+        continue;
       }
-    });
+
+      if (!rawName.endsWith('.rs')) {
+        warnings.push(`${rawName} は .rs ではないためスキップしました。`);
+        continue;
+      }
+
+      const path = normalizeSourcePath(rawName);
+
+      if (usedPaths.has(path)) {
+        warnings.push(`${path} は重複しているため後続をスキップしました。`);
+        continue;
+      }
+
+      usedPaths.add(path);
+      files[path] = rawContent;
+    }
 
     return {
       ok: errors.length === 0,
-      errors: errors,
-      warnings: warnings
+      entryPath,
+      files,
+      errors,
+      warnings
     };
   }
 
+  function listVirtualFs(files) {
+    return Object.keys(files || {}).sort();
+  }
+
+  function readFile(files, path) {
+    const normalized = normalizePath(path);
+    if (!normalized) return '';
+    return Object.prototype.hasOwnProperty.call(files || {}, normalized)
+      ? files[normalized]
+      : '';
+  }
+
   global.RustVirtualFs = {
-    createEmptyFs: createEmptyFs,
-    hasFile: hasFile,
-    writeFile: writeFile,
-    readFile: readFile,
-    deleteFile: deleteFile,
-    listFiles: listFiles,
-    buildCargoToml: buildCargoToml,
-    createProjectFs: createProjectFs,
-    exportPlainObject: exportPlainObject,
-    validateFs: validateFs,
-    normalizePath: normalizePath,
-    normalizeSrcPath: normalizeSrcPath
+    buildCargoToml,
+    createVirtualFs,
+    listVirtualFs,
+    readFile,
+    makeEntryPath,
+    normalizeSourcePath
   };
 })(window);
