@@ -59,6 +59,7 @@
               <option value="wasm-js">.wasm + loader.js</option>
               <option value="wasm-only">.wasmのみ</option>
               <option value="js-only">loader.jsのみ</option>
+              <option value="zip">ZIP一括</option>
             </select>
           </div>
         </div>
@@ -96,10 +97,10 @@
           <div class="field">
             <label for="edition">edition</label>
             <select id="edition">
-              <option value="2015">2015</option>
-              <option value="2018">2018</option>
-              <option value="2021" selected>2021</option>
+              <option value="2021">2021</option>
               <option value="2024">2024</option>
+              <option value="2018">2018</option>
+              <option value="2015">2015</option>
             </select>
           </div>
         </div>
@@ -114,7 +115,7 @@
           <textarea
             id="featuresText"
             spellcheck="false"
-            placeholder="必要なら features を1行ずつ入力"
+            placeholder="必要なら features を 1行ずつ入れる"
           ></textarea>
         </div>
 
@@ -193,15 +194,15 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          この段階では本物のRustコンパイル本体は未接続。
-          先にUIと管理構造を固め、その後で仮想FS・依存管理・ビルド制御を追加する。
+          現段階では疑似ビルド構造まで接続済み。
+          本物の Rust → Wasm コンパイル本体はまだ未接続。
         </div>
       </article>
 
       <article class="panel">
         <h2>状態・ログ・出力</h2>
 
-        <div class="status" id="buildStatus">準備完了</div>
+        <div class="status" id="buildStatus">状態: 待機中</div>
 
         <div class="field">
           <label for="buildLog">ビルドログ</label>
@@ -214,10 +215,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="field">
-          <label>ビルド結果概要</label>
-          <div id="buildSummary" class="notice">
-            まだビルド結果はありません。
-          </div>
+          <label>ビルド概要</label>
+          <div class="summary-box" id="buildSummary"></div>
         </div>
 
         <div class="button-row">
@@ -227,8 +226,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          今は仮出力として、ビルド情報とRust入力内容を整形表示する。
-          実際の `.wasm` 生成は後で内部モジュールを足して接続する。
+          今は仮想FS・依存確認・疑似出力生成までを実行する。
+          実際の `.wasm` 生成は次段階で接続する。
         </div>
       </article>
     </section>
@@ -239,7 +238,11 @@ pub fn greet(name: &str) -> String {
   <script src="../assets/js/common/clipboard.js"></script>
   <script src="../assets/js/common/file-list.js"></script>
   <script src="../assets/js/common/status.js"></script>
+
+  <script src="../assets/js/rust/rust-dependency-manager.js"></script>
   <script src="../assets/js/rust/rust-build-engine.js"></script>
+  <script src="../assets/js/rust/rust-output-manager.js"></script>
+  <script src="../assets/js/rust/rust-build-controller.js"></script>
   <script src="../assets/js/rust/rust-build-page.js"></script>
 </body>
 </html>
