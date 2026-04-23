@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
+  <title>Rust Build | browser-build-workshop</title>
+  <meta
+    name="description"
+    content="Rust を Wasm へ変換するためのビルド作業ページ"
+  />
+  <style>
+    :root {
+      --bg: #020617;
+      --panel: #0f172a;
+      --panel-2: #111827;
+      --line: #334155;
+      --text: #f8fafc;
+      --muted: #cbd5e1;
+      --accent: #38bdf8;
+      --accent-2: #22c55e;
+      --danger: #f97316;
+      --warn: #facc15;
+      --shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+      --radius: 18px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: linear-gradient(180deg, #020617 0%, #0f172a 100%);
+      color: var(--text);
+      font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        Roboto,
+        "Hiragino Sans",
+        "Hiragino Kaku Gothic ProN",
+        "Noto Sans JP",
+        "Yu Gothic",
+        sans-serif;
+      min-height: 100%;
+    }
+
+    button, select, input, textarea {
+      font: inherit;
+    }
+
+    .page {
+      width: min(1280px, calc(100% - 20px));
+      margin: 0 auto;
+      padding: 18px 0 32px;
+    }
+
+    .topbar {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .topbar-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .title-box {
+      background: rgba(15, 23, 42, 0.92);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 20px;
+      padding: 18px 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .title-box h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.5rem, 4vw, 2.3rem);
+      line-height: 1.2;
+    }
+
+    .title-box p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.7;
+      font-size: 0.95rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    .panel {
+      background: rgba(17, 24, 39, 0.94);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: var(--radius);
+      padding: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      font-size: 1.08rem;
+      line-height: 1.3;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+
+    .field label {
+      font-weight: 700;
+      font-size: 0.95rem;
+    }
+
+    .field input[type="text"],
+    .field select,
+    .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: #020617;
+      color: var(--text);
+      padding: 12px 14px;
+      outline: none;
+    }
+
+    .field textarea {
+      min-height: 220px;
+      resize: vertical;
+      line-height: 1.65;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .checkboxes {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .checkbox {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.95rem;
+    }
+
+    .button-row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .btn {
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      width: 100%;
+    }
+
+    .btn:hover,
+    .btn:focus-visible {
+      transform: translateY(-1px);
+      opacity: 0.96;
+      outline: none;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), #0284c7);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, var(--accent-2), #15803d);
+      color: white;
+    }
+
+    .btn-muted {
+      background: rgba(148, 163, 184, 0.12);
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, var(--danger), #ea580c);
+      color: white;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(148, 163, 184, 0.12);
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      font-size: 0.9rem;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+
+    .log-box,
+    .output-box {
+      min-height: 180px;
+      border-radius: 14px;
+      background: #020617;
+      border: 1px solid var(--line);
+      padding: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      line-height: 1.65;
+      font-size: 0.93rem;
+      overflow-wrap: anywhere;
+    }
+
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .file-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(148, 163, 184, 0.08);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      font-size: 0.93rem;
+    }
+
+    .notice {
+      margin-top: 12px;
+      border-left: 4px solid var(--warn);
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(250, 204, 21, 0.08);
+      color: #fde68a;
+      font-size: 0.92rem;
+      line-height: 1.7;
+    }
+
+    @media (min-width: 1040px) {
+      .layout {
+        grid-template-columns: 1.1fr 0.9fr;
+      }
+
+      .row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .button-row {
+        flex-direction: row;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        width: auto;
+        min-width: 180px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="topbar">
+      <div class="topbar-actions">
+        <button class="btn btn-muted" id="goHome">トップへ戻る</button>
+        <button class="btn btn-secondary" id="goTsPage">TS変換へ</button>
+      </div>
+
+      <div class="title-box">
+        <h1>Rust Build</h1>
+        <p>
+          Rust を Wasm へ向けて整えるビルド作業ページ。
+          単一ファイル変換ではなく、複数ファイル・Cargo相当設定・出力管理まで見据えた土台として作る。
+        </p>
+      </div>
+    </section>
+
+    <section class="layout">
+      <article class="panel">
+        <h2>入力と設定</h2>
+
+        <div class="field">
+          <label for="projectName">プロジェクト名</label>
+          <input
+            type="text"
+            id="projectName"
+            placeholder="例: sample-rust-project"
+            value="sample-rust-project"
+          />
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="entryType">エントリーポイント</label>
+            <select id="entryType">
+              <option value="lib.rs">lib.rs</option>
+              <option value="main.rs">main.rs</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="outputMode">出力形式</label>
+            <select id="outputMode">
+              <option value="wasm-js">.wasm + loader.js</option>
+              <option value="wasm-only">.wasmのみ</option>
+              <option value="zip">ZIP一括</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="buildMode">ビルドモード</label>
+            <select id="buildMode">
+              <option value="release">release</option>
+              <option value="debug">debug</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="crateType">crate-type</label>
+            <select id="crateType">
+              <option value="cdylib">cdylib</option>
+              <option value="rlib">rlib</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="cargoToml">Cargo.toml 相当設定</label>
+          <textarea id="cargoToml" spellcheck="false">[package]
+name = "sample-rust-project"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+</textarea>
+        </div>
+
+        <div class="field">
+          <label for="mainRustCode">メインRustコード</label>
+          <textarea id="mainRustCode" spellcheck="false">use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn greet(name: &str) -> String {
+    format!("hello {}", name)
+}
+</textarea>
+        </div>
+
+        <div class="field">
+          <label for="subFileName">補助Rustファイル名</label>
+          <input
+            type="text"
+            id="subFileName"
+            placeholder="例: utils.rs"
+          />
+        </div>
+
+        <div class="field">
+          <label for="subFileCode">補助Rustファイルコード</label>
+          <textarea
+            id="subFileCode"
+            spellcheck="false"
+            placeholder="ここに補助Rustファイルの中身を入れる"
+          ></textarea>
+        </div>
+
+        <div class="checkboxes">
+          <label class="checkbox">
+            <input type="checkbox" id="enableWasmBindgen" checked />
+            wasm-bindgen を使う
+          </label>
+
+          <label class="checkbox">
+            <input type="checkbox" id="enableOptimize" checked />
+            出力最適化を有効にする
+          </label>
+
+          <label class="checkbox">
+            <input type="checkbox" id="enableJsLoader" checked />
+            loader.js を出力対象に含める
+          </label>
+        </div>
+
+        <div class="file-list" id="subFilesList">
+          <div class="file-item">
+            <span>補助Rustファイルはまだ追加されていません</span>
+            <span>-</span>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <button class="btn btn-secondary" id="addSubFileButton">補助ファイルを追加</button>
+          <button class="btn btn-primary" id="runBuildButton">ビルドを実行</button>
+          <button class="btn btn-danger" id="clearAllButton">入力を初期化</button>
+        </div>
+
+        <div class="notice">
+          この段階では本物のRustコンパイル本体は未接続。
+          先にUIと管理構造を固め、その後で仮想FS・依存管理・ビルド制御を追加する。
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>状態・ログ・出力</h2>
+
+        <div class="status" id="buildStatus">状態: 待機中</div>
+
+        <div class="field">
+          <label>ビルドログ</label>
+          <div class="log-box" id="buildLog">まだ実行されていません。</div>
+        </div>
+
+        <div class="field">
+          <label>出力内容</label>
+          <div class="output-box" id="buildOutput">まだ出力はありません。</div>
+        </div>
+
+        <div class="button-row">
+          <button class="btn btn-muted" id="downloadOutputButton">出力を保存</button>
+          <button class="btn btn-muted" id="copyOutputButton">出力をコピー</button>
+        </div>
+
+        <div class="notice">
+          今は仮出力として、ビルド情報とRust入力内容を整形表示する。
+          実際の `.wasm` 生成は後で内部モジュールを足して接続する。
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <script>
+    (() => {
+      const goHome = document.getElementById("goHome");
+      const goTsPage = document.getElementById("goTsPage");
+
+      const projectName = document.getElementById("projectName");
+      const entryType = document.getElementById("entryType");
+      const outputMode = document.getElementById("outputMode");
+      const buildMode = document.getElementById("buildMode");
+      const crateType = document.getElementById("crateType");
+      const cargoToml = document.getElementById("cargoToml");
+      const mainRustCode = document.getElementById("mainRustCode");
+      const subFileName = document.getElementById("subFileName");
+      const subFileCode = document.getElementById("subFileCode");
+      const enableWasmBindgen = document.getElementById("enableWasmBindgen");
+      const enableOptimize = document.getElementById("enableOptimize");
+      const enableJsLoader = document.getElementById("enableJsLoader");
+      const subFilesList = document.getElementById("subFilesList");
+      const addSubFileButton = document.getElementById("addSubFileButton");
+      const runBuildButton = document.getElementById("runBuildButton");
+      const clearAllButton = document.getElementById("clearAllButton");
+      const buildStatus = document.getElementById("buildStatus");
+      const buildLog = document.getElementById("buildLog");
+      const buildOutput = document.getElementById("buildOutput");
+      const downloadOutputButton = document.getElementById("downloadOutputButton");
+      const copyOutputButton = document.getElementById("copyOutputButton");
+
+      const subFiles = [];
+
+      function move(path) {
+        window.location.href = path;
+      }
+
+      function escapeHtml(value) {
+        return value
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;");
+      }
+
+      function renderSubFiles() {
+        if (subFiles.length === 0) {
+          subFilesList.innerHTML = `
+            <div class="file-item">
+              <span>補助Rustファイルはまだ追加されていません</span>
+              <span>-</span>
+            </div>
+          `;
+          return;
+        }
+
+        subFilesList.innerHTML = subFiles
+          .map((file, index) => {
+            return `
+              <div class="file-item">
+                <span>${index + 1}. ${escapeHtml(file.name)}</span>
+                <span>${file.code.length} chars</span>
+              </div>
+            `;
+          })
+          .join("");
+      }
+
+      function setStatus(text) {
+        buildStatus.textContent = `状態: ${text}`;
+      }
+
+      function setLog(text) {
+        buildLog.textContent = text;
+      }
+
+      function setOutput(text) {
+        buildOutput.textContent = text;
+      }
+
+      function createMockRustOutput() {
+        const lines = [
+          `# project: ${projectName.value.trim() || "untitled-rust-project"}`,
+          `# entry: ${entryType.value}`,
+          `# output mode: ${outputMode.value}`,
+          `# build mode: ${buildMode.value}`,
+          `# crate-type: ${crateType.value}`,
+          `# wasm-bindgen: ${enableWasmBindgen.checked ? "on" : "off"}`,
+          `# optimize: ${enableOptimize.checked ? "on" : "off"}`,
+          `# loader.js: ${enableJsLoader.checked ? "on" : "off"}`,
+          ``,
+          `--- Cargo.toml ---`,
+          cargoToml.value.trim() || "# no cargo config",
+          ``,
+          `--- ${entryType.value} ---`,
+          mainRustCode.value.trim() || "// no input",
+          ``,
+          `--- sub files ---`
+        ];
+
+        if (subFiles.length === 0) {
+          lines.push("# none");
+        } else {
+          subFiles.forEach((file) => {
+            lines.push(`// ${file.name}`);
+            lines.push(file.code.trim());
+            lines.push("");
+          });
+        }
+
+        return lines.join("\n").trim();
+      }
+
+      goHome?.addEventListener("click", () => move("./index.html"));
+      goTsPage?.addEventListener("click", () => move("./ts-build.html"));
+
+      addSubFileButton?.addEventListener("click", () => {
+        const name = subFileName.value.trim();
+        const code = subFileCode.value.trim();
+
+        if (!name) {
+          setStatus("補助ファイル名不足");
+          setLog("補助Rustファイル名を入力してください。");
+          return;
+        }
+
+        if (!code) {
+          setStatus("補助ファイルコード不足");
+          setLog("補助Rustファイルコードを入力してください。");
+          return;
+        }
+
+        subFiles.push({ name, code });
+        subFileName.value = "";
+        subFileCode.value = "";
+        renderSubFiles();
+        setStatus("補助ファイル追加完了");
+        setLog(`補助Rustファイル "${name}" を追加しました。`);
+      });
+
+      runBuildButton?.addEventListener("click", () => {
+        setStatus("ビルド実行中");
+        setLog("Rustビルドを開始しました。\n現在は仮実行です。");
+        const output = createMockRustOutput();
+        setOutput(output);
+        setStatus("ビルド完了");
+        setLog(
+          [
+            "Rustビルドを完了しました。",
+            `project: ${projectName.value.trim() || "untitled-rust-project"}`,
+            `entry: ${entryType.value}`,
+            `sub files: ${subFiles.length}`,
+            "現在は仮出力です。本物のRust→Wasmビルド本体は後で接続します。"
+          ].join("\n")
+        );
+      });
+
+      clearAllButton?.addEventListener("click", () => {
+        projectName.value = "sample-rust-project";
+        entryType.value = "lib.rs";
+        outputMode.value = "wasm-js";
+        buildMode.value = "release";
+        crateType.value = "cdylib";
+        cargoToml.value = `[package]
+name = "sample-rust-project"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+`;
+        mainRustCode.value = `use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn greet(name: &str) -> String {
+    format!("hello {}", name)
+}
+`;
+        subFileName.value = "";
+        subFileCode.value = "";
+        enableWasmBindgen.checked = true;
+        enableOptimize.checked = true;
+        enableJsLoader.checked = true;
+        subFiles.length = 0;
+        renderSubFiles();
+        setStatus("初期化完了");
+        setLog("入力内容を初期状態に戻しました。");
+        setOutput("まだ出力はありません。");
+      });
+
+      downloadOutputButton?.addEventListener("click", () => {
+        const text = buildOutput.textContent || "";
+        if (!text || text === "まだ出力はありません。") {
+          setStatus("保存失敗");
+          setLog("保存対象の出力がありません。");
+          return;
+        }
+
+        const fileNameMap = {
+          "wasm-js": "build-output.txt",
+          "wasm-only": "index.wasm.txt",
+          "zip": "project-output.txt"
+        };
+
+        const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileNameMap[outputMode.value] || "build-output.txt";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+
+        setStatus("保存完了");
+        setLog("出力内容を保存しました。");
+      });
+
+      copyOutputButton?.addEventListener("click", async () => {
+        const text = buildOutput.textContent || "";
+        if (!text || text === "まだ出力はありません。") {
+          setStatus("コピー失敗");
+          setLog("コピー対象の出力がありません。");
+          return;
+        }
+
+        try {
+          await navigator.clipboard.writeText(text);
+          setStatus("コピー完了");
+          setLog("出力内容をコピーしました。");
+        } catch (error) {
+          setStatus("コピー失敗");
+          setLog("クリップボードへのコピーに失敗しました。");
+        }
+      });
+
+      renderSubFiles();
+    })();
+  </script>
+</body>
+</html>
