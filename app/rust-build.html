@@ -58,7 +58,7 @@
             <select id="outputMode">
               <option value="wasm-js">.wasm + loader.js</option>
               <option value="wasm-only">.wasmのみ</option>
-              <option value="zip">ZIP一括</option>
+              <option value="js-only">loader.jsのみ</option>
             </select>
           </div>
         </div>
@@ -77,8 +77,45 @@
             <select id="crateType">
               <option value="cdylib">cdylib</option>
               <option value="rlib">rlib</option>
+              <option value="bin">bin</option>
             </select>
           </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="version">version</label>
+            <input
+              type="text"
+              id="version"
+              placeholder="例: 0.1.0"
+              value="0.1.0"
+            />
+          </div>
+
+          <div class="field">
+            <label for="edition">edition</label>
+            <select id="edition">
+              <option value="2015">2015</option>
+              <option value="2018">2018</option>
+              <option value="2021" selected>2021</option>
+              <option value="2024">2024</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="dependenciesText">dependencies</label>
+          <textarea id="dependenciesText" spellcheck="false">wasm-bindgen = "0.2"</textarea>
+        </div>
+
+        <div class="field">
+          <label for="featuresText">features</label>
+          <textarea
+            id="featuresText"
+            spellcheck="false"
+            placeholder="必要なら features を1行ずつ入力"
+          ></textarea>
         </div>
 
         <div class="field">
@@ -164,20 +201,28 @@ pub fn greet(name: &str) -> String {
       <article class="panel">
         <h2>状態・ログ・出力</h2>
 
-        <div class="status" id="buildStatus">状態: 待機中</div>
+        <div class="status" id="buildStatus">準備完了</div>
 
         <div class="field">
-          <label>ビルドログ</label>
-          <div class="log-box" id="buildLog">まだ実行されていません。</div>
+          <label for="buildLog">ビルドログ</label>
+          <textarea id="buildLog" class="log-box" spellcheck="false" readonly>まだ実行されていません。</textarea>
         </div>
 
         <div class="field">
-          <label>出力内容</label>
-          <div class="output-box" id="buildOutput">まだ出力はありません。</div>
+          <label for="buildOutput">出力内容</label>
+          <textarea id="buildOutput" class="output-box" spellcheck="false" readonly>まだ出力はありません。</textarea>
+        </div>
+
+        <div class="field">
+          <label>ビルド結果概要</label>
+          <div id="buildSummary" class="notice">
+            まだビルド結果はありません。
+          </div>
         </div>
 
         <div class="button-row">
           <button class="btn btn-muted" id="downloadOutputButton">出力を保存</button>
+          <button class="btn btn-muted" id="downloadLogButton">ログを保存</button>
           <button class="btn btn-muted" id="copyOutputButton">出力をコピー</button>
         </div>
 
