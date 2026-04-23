@@ -1,7 +1,7 @@
 (function (global) {
   'use strict';
 
-  const ENGINE_VERSION = '0.3.0';
+  const ENGINE_VERSION = '0.2.2';
 
   function nowIso() {
     return new Date().toISOString();
@@ -40,21 +40,31 @@
   }
 
   function normalizeDependencies(rawText) {
-    return normalizeLineBreaks(rawText)
-      .split('\n')
-      .map(function (line) {
-        return line.trim();
-      })
-      .filter(Boolean);
+    const text = normalizeLineBreaks(rawText);
+    const lines = text.split('\n');
+    const cleaned = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      cleaned.push(trimmed);
+    }
+
+    return cleaned;
   }
 
   function normalizeFeatures(rawText) {
-    return normalizeLineBreaks(rawText)
-      .split('\n')
-      .map(function (line) {
-        return line.trim();
-      })
-      .filter(Boolean);
+    const text = normalizeLineBreaks(rawText);
+    const lines = text.split('\n');
+    const cleaned = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      cleaned.push(trimmed);
+    }
+
+    return cleaned;
   }
 
   function pascalCase(value) {
@@ -256,7 +266,7 @@
     return lines.join('\n').trim() + '\n';
   }
 
-  function buildVirtualFsFallback(config) {
+  function buildVirtualFs(config) {
     const files = {};
     const subFiles = Array.isArray(config.subFiles) ? config.subFiles : [];
 
@@ -285,48 +295,21 @@
     return files;
   }
 
-  function buildVirtualFs(config) {
-    if (
-      global.RustVirtualFs &&
-      typeof global.RustVirtualFs.createVirtualFs === 'function'
-    ) {
-      const result = global.RustVirtualFs.createVirtualFs({
-        projectName: config.projectName,
-        version: config.version,
-        edition: config.edition,
-        crateType: config.crateType,
-        entryTarget: config.entryTarget,
-        entryPoint: config.entryPoint,
-        dependenciesText: config.dependenciesText,
-        featuresText: config.featuresText,
-        mainRustCode: config.mainRustCode,
-        subFiles: config.subFiles
-      });
-
-      if (result && result.files && typeof result.files === 'object') {
-        return result.files;
-      }
+  function validateDependenciesWithManager(config, errors, warnings) {
+    if (!global.RustDependencyManager || typeof global.RustDependencyManager.validateDependencies !== 'function') {
+      warnings.push('RustDependencyManager が見つからないため、依存関係検証をスキップしました。');
+      return;
     }
 
-    return buildVirtualFsFallback(config);
-  }
+    const dependencyResult = global.RustDependencyManager.validateDependencies(config.dependenciesText);
 
-  function validateDependencySet(config) {
-    if (
-      global.RustDependencyManager &&
-      typeof global.RustDependencyManager.validateDependencies === 'function'
-    ) {
-      return global.RustDependencyManager.validateDependencies(config.dependenciesText || '');
+    if (dependencyResult && Array.isArray(dependencyResult.errors) && dependencyResult.errors.length) {
+      errors.push.apply(errors, dependencyResult.errors);
     }
 
-    return {
-      ok: true,
-      errors: [],
-      warnings: [],
-      parsedList: normalizeDependencies(config.dependenciesText).map(function (line) {
-        return { raw: line };
-      })
-    };
+    if (dependencyResult && Array.isArray(dependencyResult.warnings) && dependencyResult.warnings.length) {
+      warnings.push.apply(warnings, dependencyResult.warnings);
+    }
   }
 
   function validateSourceSet(config, virtualFs) {
@@ -384,6 +367,8 @@
       }
     }
 
+    validateDependenciesWithManager(config, errors, warnings);
+
     if (!config.flags.enableJsLoader && config.outputMode === 'wasm-js') {
       warnings.push('loader.js 出力が無効なので、実際の出力は wasm-only 相当になります。');
     }
@@ -392,35 +377,10 @@
       warnings.push('debug ビルドで最適化フラグが有効です。');
     }
 
-    const dependencyValidation = validateDependencySet(config);
-
-    if (dependencyValidation.errors && dependencyValidation.errors.length) {
-      errors.push.apply(errors, dependencyValidation.errors);
-    }
-
-    if (dependencyValidation.warnings && dependencyValidation.warnings.length) {
-      warnings.push.apply(warnings, dependencyValidation.warnings);
-    }
-
     return {
-      errors: uniqueStrings(errors),
-      warnings: uniqueStrings(warnings),
-      dependencyValidation: dependencyValidation
+      errors: errors,
+      warnings: warnings
     };
-  }
-
-  function uniqueStrings(list) {
-    const seen = new Set();
-    const result = [];
-
-    for (const item of list || []) {
-      const value = safeString(item).trim();
-      if (!value || seen.has(value)) continue;
-      seen.add(value);
-      result.push(value);
-    }
-
-    return result;
   }
 
   function makeOutputFiles(config, virtualFs, evaluation) {
@@ -522,7 +482,13 @@
     lines.push('// js-loader: ' + String(config.flags.enableJsLoader));
     lines.push('');
 
-    lines.push('// Cargo.toml equivalent');
+    lines.push('// generated files');
+    for (const file of makeOutputFiles(config, virtualFs, evaluation)) {
+      lines.push('// - ' + file.name);
+    }
+    lines.push('');
+
+    lines.push('// Cargo.toml');
     lines.push(virtualFs['/Cargo.toml'] || '');
     lines.push('');
 
@@ -548,20 +514,6 @@
       lines.push(virtualFs[path]);
     }
 
-    if (evaluation.dependencyValidation && evaluation.dependencyValidation.parsedList) {
-      lines.push('');
-      lines.push('// dependency check result');
-      for (const item of evaluation.dependencyValidation.parsedList) {
-        const name = safeString(item.name || item.raw || '(unknown)');
-        const version = safeString(item.version || '');
-        if (version) {
-          lines.push('// - ' + name + ' @ ' + version);
-        } else {
-          lines.push('// - ' + name);
-        }
-      }
-    }
-
     if (evaluation.errors.length) {
       lines.push('');
       lines.push('// errors');
@@ -585,6 +537,8 @@
     const lines = [];
 
     lines.push('Rustビルドを開始しました。');
+    lines.push('build id: ' + config.buildId);
+    lines.push('timestamp: ' + config.timestamp);
     lines.push('project: ' + config.projectName);
     lines.push('entry: ' + config.entryPoint);
     lines.push('entry target: ' + config.entryTarget);
@@ -596,13 +550,6 @@
     lines.push('js loader: ' + String(config.flags.enableJsLoader));
     lines.push('wasm-bindgen flag: ' + String(config.flags.enableWasmBindgen));
 
-    if (evaluation.dependencyValidation) {
-      lines.push('dependency check connected: true');
-      lines.push('dependency parsed count: ' + (evaluation.dependencyValidation.parsedList || []).length);
-    } else {
-      lines.push('dependency check connected: false');
-    }
-
     if (evaluation.errors.length === 0) {
       lines.push('入力検証を通過しました。');
       lines.push('現在は仮想FS構築 + 疑似ビルド出力まで実行しました。');
@@ -610,20 +557,30 @@
       lines.push('入力エラーがあるため、本ビルド相当処理は停止しました。');
     }
 
-    if (evaluation.warnings.length > 0) {
-      lines.push('');
-      lines.push('警告:');
-      for (const warning of evaluation.warnings) {
-        lines.push('- ' + warning);
-      }
-    }
+    lines.push('');
+    lines.push('virtual fs:');
+    Object.keys(virtualFsForLog(config)).sort().forEach(function (path) {
+      lines.push('- ' + path);
+    });
 
-    if (evaluation.errors.length > 0) {
-      lines.push('');
-      lines.push('エラー:');
+    lines.push('');
+    lines.push('errors:');
+    if (evaluation.errors.length) {
       for (const error of evaluation.errors) {
         lines.push('- ' + error);
       }
+    } else {
+      lines.push('- なし');
+    }
+
+    lines.push('');
+    lines.push('warnings:');
+    if (evaluation.warnings.length) {
+      for (const warning of evaluation.warnings) {
+        lines.push('- ' + warning);
+      }
+    } else {
+      lines.push('- なし');
     }
 
     lines.push('');
@@ -633,6 +590,10 @@
     }
 
     return lines.join('\n');
+  }
+
+  function virtualFsForLog(config) {
+    return buildVirtualFs(config);
   }
 
   function collectConfig(input) {
@@ -709,10 +670,6 @@
         }).join('') + '</ul>'
       : '<p>なし</p>';
 
-    const dependencyInfoHtml = evaluation.dependencyValidation
-      ? '<p><strong>依存チェック:</strong> 接続済み</p>'
-      : '<p><strong>依存チェック:</strong> 未接続</p>';
-
     return [
       '<div class="rust-build-summary">',
       '<p><strong>ビルドID:</strong> ' + escapeHtml(config.buildId) + '</p>',
@@ -725,7 +682,6 @@
       '<p><strong>output-mode:</strong> ' + escapeHtml(config.outputMode) + '</p>',
       '<p><strong>optimize:</strong> ' + escapeHtml(String(config.flags.enableOptimize)) + '</p>',
       '<p><strong>js-loader:</strong> ' + escapeHtml(String(config.flags.enableJsLoader)) + '</p>',
-      dependencyInfoHtml,
       '<h4>エラー</h4>',
       errorHtml,
       '<h4>警告</h4>',
@@ -744,8 +700,7 @@
     const evaluation = {
       status: validation.errors.length === 0 ? 'success' : 'error',
       errors: validation.errors,
-      warnings: validation.warnings,
-      dependencyValidation: validation.dependencyValidation || null
+      warnings: validation.warnings
     };
 
     const outputFiles = makeOutputFiles(config, virtualFs, evaluation);
@@ -762,7 +717,6 @@
       virtualFs: clone(virtualFs),
       errors: clone(evaluation.errors),
       warnings: clone(evaluation.warnings),
-      dependencyValidation: clone(evaluation.dependencyValidation),
       logText: logText,
       outputText: outputText,
       outputFiles: clone(outputFiles),
