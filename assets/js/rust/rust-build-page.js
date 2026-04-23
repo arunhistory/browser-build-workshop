@@ -11,15 +11,25 @@
     return document.getElementById(id);
   }
 
+  function hasEl(id) {
+    return !!getEl(id);
+  }
+
   function safeValue(id, fallback = '') {
     const el = getEl(id);
     if (!el) return fallback;
     return typeof el.value === 'string' ? el.value : fallback;
   }
 
+  function safeChecked(id, fallback = false) {
+    const el = getEl(id);
+    if (!el || typeof el.checked !== 'boolean') return fallback;
+    return el.checked;
+  }
+
   function setValue(id, value) {
     const el = getEl(id);
-    if (el) {
+    if (el && 'value' in el) {
       el.value = value;
     }
   }
@@ -65,12 +75,26 @@
     return safeValue('subFileCode');
   }
 
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function renderSubFiles() {
     const target = getEl('subFilesList');
     if (!target) return;
 
     if (!state.subFiles.length) {
-      target.innerHTML = '<p>補助ファイルはまだありません。</p>';
+      target.innerHTML = [
+        '<div class="file-item">',
+        '  <span>補助Rustファイルはまだ追加されていません</span>',
+        '  <span>-</span>',
+        '</div>'
+      ].join('');
       return;
     }
 
@@ -89,15 +113,6 @@
     }).join('');
 
     target.innerHTML = html;
-  }
-
-  function escapeHtml(text) {
-    return String(text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 
   function addSubFile() {
@@ -169,23 +184,6 @@
     showStatus('補助ファイルを表示しました: ' + file.name);
   }
 
-  function collectInput() {
-    return {
-      projectName: safeValue('projectName', 'sample-rust-project').trim(),
-      entryPoint: safeValue('entryType', 'lib.rs').trim(),
-      outputMode: normalizeOutputMode(safeValue('outputMode', 'wasm-js').trim()),
-      buildMode: safeValue('buildMode', 'release').trim(),
-      crateType: safeValue('crateType', 'cdylib').trim(),
-      version: safeValue('version', '0.1.0').trim() || '0.1.0',
-      edition: safeValue('edition', '2021').trim() || '2021',
-      dependenciesText: readDependenciesText(),
-      featuresText: safeValue('featuresText', ''),
-      cargoTomlText: safeValue('cargoToml', ''),
-      mainRustCode: safeValue('mainRustCode', ''),
-      subFiles: state.subFiles.slice()
-    };
-  }
-
   function readDependenciesText() {
     const dependenciesArea = getEl('dependenciesText');
     if (dependenciesArea) {
@@ -214,6 +212,54 @@
     return 'wasm-js';
   }
 
+  function applyCheckboxesToOutputMode(rawMode) {
+    const enableJsLoader = safeChecked('enableJsLoader', true);
+
+    if (!enableJsLoader && rawMode === 'wasm-js') {
+      return 'wasm-only';
+    }
+
+    return rawMode;
+  }
+
+  function collectInput() {
+    const rawOutputMode = normalizeOutputMode(safeValue('outputMode', 'wasm-js').trim());
+
+    return {
+      projectName: safeValue('projectName', 'sample-rust-project').trim() || 'sample-rust-project',
+      entryPoint: safeValue('entryType', 'lib.rs').trim() || 'lib.rs',
+      outputMode: applyCheckboxesToOutputMode(rawOutputMode),
+      buildMode: safeValue('buildMode', 'release').trim() || 'release',
+      crateType: safeValue('crateType', 'cdylib').trim() || 'cdylib',
+      version: safeValue('version', '0.1.0').trim() || '0.1.0',
+      edition: safeValue('edition', '2021').trim() || '2021',
+      dependenciesText: readDependenciesText(),
+      featuresText: safeValue('featuresText', ''),
+      cargoTomlText: safeValue('cargoToml', ''),
+      mainRustCode: safeValue('mainRustCode', ''),
+      subFiles: state.subFiles.slice(),
+      flags: {
+        enableWasmBindgen: safeChecked('enableWasmBindgen', true),
+        enableOptimize: safeChecked('enableOptimize', true),
+        enableJsLoader: safeChecked('enableJsLoader', true)
+      }
+    };
+  }
+
+  function makeFallbackSummary(result) {
+    const projectName = escapeHtml(result && result.config && result.config.projectName ? result.config.projectName : 'unknown');
+    const mode = escapeHtml(result && result.config && result.config.buildMode ? result.config.buildMode : '-');
+    const outputMode = escapeHtml(result && result.config && result.config.outputMode ? result.config.outputMode : '-');
+    const okText = result && result.ok ? '成功' : '失敗';
+
+    return [
+      '<div><strong>結果:</strong> ' + okText + '</div>',
+      '<div><strong>プロジェクト名:</strong> ' + projectName + '</div>',
+      '<div><strong>ビルドモード:</strong> ' + mode + '</div>',
+      '<div><strong>出力形式:</strong> ' + outputMode + '</div>'
+    ].join('');
+  }
+
   function runBuild() {
     if (state.isRunning) {
       showStatus('ビルド実行中です');
@@ -231,6 +277,7 @@
     showStatus('ビルド中...');
     showLog('Rustビルドを開始します...');
     showOutput('');
+    setHtml('buildSummary', 'ビルド実行中です...');
 
     try {
       const input = collectInput();
@@ -240,7 +287,12 @@
 
       showLog(result.logText || '');
       showOutput(result.outputText || '');
-      setHtml('buildSummary', result.summaryHtml || '');
+
+      if (result.summaryHtml) {
+        setHtml('buildSummary', result.summaryHtml);
+      } else {
+        setHtml('buildSummary', makeFallbackSummary(result));
+      }
 
       if (result.ok) {
         showStatus('ビルド成功');
@@ -252,7 +304,7 @@
       showStatus('ビルド中に例外が発生しました');
       showLog(String(error && error.stack ? error.stack : error));
       showOutput('');
-      setHtml('buildSummary', '');
+      setHtml('buildSummary', 'ビルド結果の表示に失敗しました。');
     } finally {
       state.isRunning = false;
       lockUi(false);
@@ -279,6 +331,8 @@
     setValue('crateType', 'cdylib');
     setValue('version', '0.1.0');
     setValue('edition', '2021');
+    setValue('dependenciesText', 'wasm-bindgen = "0.2"');
+    setValue('featuresText', '');
     setValue('cargoToml', [
       '[package]',
       'name = "sample-rust-project"',
@@ -291,23 +345,53 @@
       '[dependencies]',
       'wasm-bindgen = "0.2"'
     ].join('\n'));
-    setValue('dependenciesText', 'wasm-bindgen = "0.2"');
-    setValue('featuresText', '');
     setValue('mainRustCode', [
       'use wasm_bindgen::prelude::*;',
       '',
       '#[wasm_bindgen]',
-      'pub fn greet() -> String {',
-      '    "hello wasm".to_string()',
+      'pub fn greet(name: &str) -> String {',
+      '    format!("hello {}", name)',
       '}'
     ].join('\n'));
     setValue('subFileName', '');
     setValue('subFileCode', '');
-    showLog('');
-    showOutput('');
-    setHtml('buildSummary', '');
+
+    const wasmBindgenEl = getEl('enableWasmBindgen');
+    const optimizeEl = getEl('enableOptimize');
+    const jsLoaderEl = getEl('enableJsLoader');
+
+    if (wasmBindgenEl) wasmBindgenEl.checked = true;
+    if (optimizeEl) optimizeEl.checked = true;
+    if (jsLoaderEl) jsLoaderEl.checked = true;
+
+    showLog('まだ実行されていません。');
+    showOutput('まだ出力はありません。');
+    setHtml('buildSummary', 'まだビルド結果はありません。');
     renderSubFiles();
     showStatus('初期化しました');
+  }
+
+  function engineDownloadTextFile(filename, text) {
+    if (global.RustBuildEngine && typeof global.RustBuildEngine.downloadTextFile === 'function') {
+      global.RustBuildEngine.downloadTextFile(filename, text);
+      return true;
+    }
+
+    try {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (error) {
+      showLog(String(error && error.stack ? error.stack : error));
+      return false;
+    }
   }
 
   function downloadOutput() {
@@ -316,14 +400,14 @@
       return;
     }
 
-    if (!global.RustBuildEngine || typeof global.RustBuildEngine.downloadTextFile !== 'function') {
-      showStatus('保存機能が見つかりません');
-      return;
-    }
-
     const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-output';
-    global.RustBuildEngine.downloadTextFile(projectName + '-output.txt', state.lastBuildResult.outputText);
-    showStatus('出力を保存しました');
+    const ok = engineDownloadTextFile(projectName + '-output.txt', state.lastBuildResult.outputText);
+
+    if (ok) {
+      showStatus('出力を保存しました');
+    } else {
+      showStatus('出力の保存に失敗しました');
+    }
   }
 
   function downloadLog() {
@@ -332,14 +416,14 @@
       return;
     }
 
-    if (!global.RustBuildEngine || typeof global.RustBuildEngine.downloadTextFile !== 'function') {
-      showStatus('保存機能が見つかりません');
-      return;
-    }
-
     const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-build';
-    global.RustBuildEngine.downloadTextFile(projectName + '-build-log.txt', state.lastBuildResult.logText);
-    showStatus('ログを保存しました');
+    const ok = engineDownloadTextFile(projectName + '-build-log.txt', state.lastBuildResult.logText);
+
+    if (ok) {
+      showStatus('ログを保存しました');
+    } else {
+      showStatus('ログの保存に失敗しました');
+    }
   }
 
   async function copyOutput() {
@@ -415,20 +499,43 @@
     }
   }
 
-  function ensureMissingFields() {
-    if (!getEl('version')) {
-      console.warn('version フィールドが見つかりません');
-    }
-    if (!getEl('edition')) {
-      console.warn('edition フィールドが見つかりません');
-    }
-    if (!getEl('buildSummary')) {
-      console.warn('buildSummary フィールドが見つかりません');
-    }
+  function ensureFields() {
+    const required = [
+      'projectName',
+      'entryType',
+      'outputMode',
+      'buildMode',
+      'crateType',
+      'version',
+      'edition',
+      'dependenciesText',
+      'featuresText',
+      'cargoToml',
+      'mainRustCode',
+      'subFileName',
+      'subFileCode',
+      'subFilesList',
+      'buildStatus',
+      'buildLog',
+      'buildOutput',
+      'buildSummary',
+      'addSubFileButton',
+      'runBuildButton',
+      'clearAllButton',
+      'downloadOutputButton',
+      'downloadLogButton',
+      'copyOutputButton'
+    ];
+
+    required.forEach(function (id) {
+      if (!hasEl(id)) {
+        console.warn(id + ' が見つかりません');
+      }
+    });
   }
 
   function init() {
-    ensureMissingFields();
+    ensureFields();
     bindButtons();
     bindSubFileActions();
     bindNavigation();
