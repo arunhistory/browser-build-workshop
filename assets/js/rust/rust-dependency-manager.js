@@ -1,34 +1,26 @@
 (function (global) {
   'use strict';
 
-  const SUPPORTED_CRATES = {
+  const ALLOWED_CRATES = {
     'wasm-bindgen': {
       versions: ['0.2'],
-      note: 'Wasm公開向けの基本crate'
+      note: 'Wasm公開関数向け'
     },
     'js-sys': {
       versions: ['0.3'],
-      note: 'JavaScript連携用'
+      note: 'JavaScript連携向け'
     },
     'web-sys': {
       versions: ['0.3'],
-      note: 'Web API連携用'
-    },
-    'serde': {
-      versions: ['1'],
-      note: 'シリアライズ用'
-    },
-    'serde_json': {
-      versions: ['1'],
-      note: 'JSON処理用'
-    },
-    'console_error_panic_hook': {
-      versions: ['0.1'],
-      note: 'panic表示補助'
+      note: 'Web API連携向け'
     },
     'wee_alloc': {
       versions: ['0.4'],
-      note: '軽量アロケータ候補'
+      note: '軽量アロケータ'
+    },
+    'console_error_panic_hook': {
+      versions: ['0.1'],
+      note: 'panicログ補助'
     }
   };
 
@@ -42,195 +34,168 @@
     return safeString(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
-  function trim(text) {
+  function trimOrEmpty(text) {
     return normalizeLineBreaks(text).trim();
   }
 
-  function clone(value) {
-    return JSON.parse(JSON.stringify(value));
+  function normalizeDependencyLines(rawText) {
+    return normalizeLineBreaks(rawText)
+      .split('\n')
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(function (line) {
+        return !!line;
+      });
   }
 
   function parseDependencyLine(line) {
-    const raw = trim(line);
-    if (!raw) return null;
-    if (raw.startsWith('#')) return null;
+    const text = trimOrEmpty(line);
 
-    const eqIndex = raw.indexOf('=');
-
-    if (eqIndex === -1) {
-      return {
-        raw: raw,
-        name: raw,
-        version: '',
-        valid: false,
-        reason: '依存指定に = がありません'
-      };
-    }
-
-    const name = raw.slice(0, eqIndex).trim();
-    const value = raw.slice(eqIndex + 1).trim();
-
-    if (!name) {
-      return {
-        raw: raw,
-        name: '',
-        version: '',
-        valid: false,
-        reason: 'crate名が空です'
-      };
-    }
-
-    let version = '';
-
-    const quoted = value.match(/"([^"]+)"/);
-    if (quoted) {
-      version = quoted[1].trim();
-    } else if (value.startsWith('{') && value.endsWith('}')) {
-      const versionMatch = value.match(/version\s*=\s*"([^"]+)"/);
-      version = versionMatch ? versionMatch[1].trim() : '';
-    } else {
-      version = value.replace(/^["']|["']$/g, '').trim();
-    }
-
-    return {
-      raw: raw,
-      name: name,
-      version: version,
-      valid: true,
-      reason: ''
-    };
-  }
-
-  function parseDependencies(text) {
-    const source = normalizeLineBreaks(text);
-    const lines = source.split('\n');
-    const items = [];
-
-    lines.forEach(function (line) {
-      const parsed = parseDependencyLine(line);
-      if (parsed) {
-        items.push(parsed);
-      }
-    });
-
-    return items;
-  }
-
-  function parseFeatures(text) {
-    const source = normalizeLineBreaks(text);
-    const lines = source.split('\n');
-    const items = [];
-
-    lines.forEach(function (line) {
-      const value = trim(line);
-      if (!value) return;
-      if (value.startsWith('#')) return;
-      items.push(value);
-    });
-
-    return items;
-  }
-
-  function isSupportedCrate(crateName) {
-    return Object.prototype.hasOwnProperty.call(SUPPORTED_CRATES, crateName);
-  }
-
-  function checkVersion(crateName, version) {
-    if (!isSupportedCrate(crateName)) {
+    if (!text) {
       return {
         ok: false,
-        reason: '未対応crateです'
+        error: '空行です。'
       };
     }
 
-    const supported = SUPPORTED_CRATES[crateName];
-    const allowedVersions = supported.versions || [];
-
-    if (!version) {
-      return {
-        ok: true,
-        reason: 'バージョン未指定'
-      };
-    }
-
-    const matched = allowedVersions.some(function (prefix) {
-      return version === prefix || version.startsWith(prefix + '.') || version.startsWith('^' + prefix) || version.startsWith('~' + prefix);
-    });
-
-    if (!matched) {
+    const match = text.match(/^([a-zA-Z0-9_-]+)\s*=\s*["']([^"']+)["']$/);
+    if (!match) {
       return {
         ok: false,
-        reason: '対応外バージョンの可能性があります'
+        error: `依存指定の形式が不正です: ${text}`
       };
     }
 
     return {
       ok: true,
-      reason: ''
+      name: match[1],
+      version: match[2],
+      raw: text
     };
   }
 
-  function evaluateDependencies(dependenciesText, featuresText) {
-    const dependencies = parseDependencies(dependenciesText);
-    const features = parseFeatures(featuresText);
+  function validateDependency(parsed) {
+    if (!parsed || !parsed.ok) {
+      return {
+        ok: false,
+        error: parsed && parsed.error ? parsed.error : '依存情報の解析に失敗しました。'
+      };
+    }
 
+    const crate = ALLOWED_CRATES[parsed.name];
+    if (!crate) {
+      return {
+        ok: false,
+        error: `未対応crateです: ${parsed.name}`
+      };
+    }
+
+    const matched = crate.versions.some(function (version) {
+      return parsed.version === version || parsed.version.startsWith(version + '.');
+    });
+
+    if (!matched) {
+      return {
+        ok: false,
+        error: `未対応バージョンです: ${parsed.name} = "${parsed.version}"`
+      };
+    }
+
+    return {
+      ok: true,
+      name: parsed.name,
+      version: parsed.version,
+      raw: parsed.raw,
+      note: crate.note
+    };
+  }
+
+  function validateDependencies(rawText) {
+    const lines = normalizeDependencyLines(rawText);
     const errors = [];
     const warnings = [];
-    const accepted = [];
-    const rejected = [];
+    const parsedList = [];
+    const seen = new Set();
 
-    dependencies.forEach(function (item) {
-      if (!item.valid) {
-        errors.push(item.reason + ': ' + item.raw);
-        rejected.push(item);
-        return;
+    for (const line of lines) {
+      const parsed = parseDependencyLine(line);
+
+      if (!parsed.ok) {
+        errors.push(parsed.error);
+        continue;
       }
 
-      if (!isSupportedCrate(item.name)) {
-        errors.push('未対応crateです: ' + item.name);
-        rejected.push(item);
-        return;
+      const validated = validateDependency(parsed);
+
+      if (!validated.ok) {
+        errors.push(validated.error);
+        continue;
       }
 
-      const versionCheck = checkVersion(item.name, item.version);
-      if (!versionCheck.ok) {
-        warnings.push(item.name + ': ' + versionCheck.reason + ' (' + (item.version || '未指定') + ')');
+      if (seen.has(validated.name)) {
+        warnings.push(`同じcrateが重複しています: ${validated.name}`);
       }
 
-      accepted.push({
-        name: item.name,
-        version: item.version,
-        note: SUPPORTED_CRATES[item.name].note || ''
-      });
-    });
-
-    features.forEach(function (feature) {
-      if (!/^[a-zA-Z0-9_-]+(\s*=\s*\[.*\])?$/.test(feature) && !/^[a-zA-Z0-9_-]+$/.test(feature)) {
-        warnings.push('features の記述確認が必要です: ' + feature);
-      }
-    });
+      seen.add(validated.name);
+      parsedList.push(validated);
+    }
 
     return {
       ok: errors.length === 0,
-      errors: errors,
-      warnings: warnings,
-      accepted: accepted,
-      rejected: rejected,
-      features: features
+      errors,
+      warnings,
+      parsedList
     };
   }
 
-  function getSupportedCrates() {
-    return clone(SUPPORTED_CRATES);
+  function getAllowedCrates() {
+    return Object.keys(ALLOWED_CRATES).map(function (name) {
+      return {
+        name,
+        versions: ALLOWED_CRATES[name].versions.slice(),
+        note: ALLOWED_CRATES[name].note
+      };
+    });
+  }
+
+  function buildAllowedCratesHtml() {
+    const items = getAllowedCrates();
+
+    if (!items.length) {
+      return '<p>対応crateはまだありません。</p>';
+    }
+
+    return [
+      '<div class="dependency-allowed-list">',
+      '  <ul>',
+      items.map(function (item) {
+        return [
+          '    <li>',
+          `      <strong>${escapeHtml(item.name)}</strong>`,
+          `      <span>対応: ${escapeHtml(item.versions.join(', '))}</span>`,
+          `      <span>${escapeHtml(item.note)}</span>`,
+          '    </li>'
+        ].join('');
+      }).join(''),
+      '  </ul>',
+      '</div>'
+    ].join('');
+  }
+
+  function escapeHtml(text) {
+    return safeString(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   global.RustDependencyManager = {
-    parseDependencyLine: parseDependencyLine,
-    parseDependencies: parseDependencies,
-    parseFeatures: parseFeatures,
-    isSupportedCrate: isSupportedCrate,
-    checkVersion: checkVersion,
-    evaluateDependencies: evaluateDependencies,
-    getSupportedCrates: getSupportedCrates
+    getAllowedCrates,
+    validateDependencies,
+    buildAllowedCratesHtml,
+    normalizeDependencyLines
   };
 })(window);
