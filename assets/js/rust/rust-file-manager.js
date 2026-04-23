@@ -1,118 +1,218 @@
 (function (global) {
   'use strict';
 
-  function createStore() {
-    return {
-      files: []
-    };
+  const state = {
+    subFiles: []
+  };
+
+  function safeString(value, fallback = '') {
+    if (typeof value === 'string') return value;
+    if (value === null || value === undefined) return fallback;
+    return String(value);
   }
 
-  function normalizeName(name) {
-    return String(name || '').trim();
+  function normalizeLineBreaks(text) {
+    return safeString(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   }
 
-  function normalizeContent(content) {
-    return String(content || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  function trimOrEmpty(text) {
+    return normalizeLineBreaks(text).trim();
+  }
+
+  function makeId(prefix) {
+    return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function escapeHtml(text) {
+    return safeString(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function isValidRustFileName(name) {
-    return /^[a-zA-Z0-9_.-]+\.rs$/.test(name);
+    return /^[a-zA-Z0-9_.\-\/]+$/.test(name) && name.endsWith('.rs');
   }
 
-  function addFile(store, name, content) {
-    const fileName = normalizeName(name);
-    const fileContent = normalizeContent(content);
+  function normalizeRustFileName(name) {
+    let value = trimOrEmpty(name);
+    value = value.replace(/\\/g, '/');
+    value = value.replace(/^\/+/, '');
+    value = value.replace(/^src\//, '');
+    value = value.replace(/\/+/g, '/');
+    return value;
+  }
 
-    if (!fileName) {
-      return { ok: false, message: '補助ファイル名が空です。' };
-    }
-
-    if (!isValidRustFileName(fileName)) {
-      return { ok: false, message: '補助ファイル名は .rs で終わる必要があります。' };
-    }
-
-    if (!fileContent.trim()) {
-      return { ok: false, message: '補助ファイルの内容が空です。' };
-    }
-
-    const exists = store.files.some(function (file) {
-      return file.name === fileName;
+  function getSubFiles() {
+    return state.subFiles.slice().map(function (file) {
+      return {
+        id: file.id,
+        name: file.name,
+        content: file.content
+      };
     });
+  }
 
-    if (exists) {
-      return { ok: false, message: '同じ名前の補助ファイルは追加できません。' };
+  function setSubFiles(files) {
+    state.subFiles = Array.isArray(files)
+      ? files.map(function (file) {
+          return {
+            id: safeString(file.id || makeId('rust-sub')),
+            name: normalizeRustFileName(file.name || ''),
+            content: normalizeLineBreaks(file.content || '')
+          };
+        }).filter(function (file) {
+          return file.name;
+        })
+      : [];
+  }
+
+  function hasFile(name) {
+    const normalized = normalizeRustFileName(name);
+    return state.subFiles.some(function (file) {
+      return file.name === normalized;
+    });
+  }
+
+  function addFile(name, content) {
+    const normalizedName = normalizeRustFileName(name);
+    const normalizedContent = normalizeLineBreaks(content || '');
+
+    if (!normalizedName) {
+      return {
+        ok: false,
+        message: '補助ファイル名を入力してください。'
+      };
     }
 
-    const item = {
-      id: 'rust-file-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
-      name: fileName,
-      content: fileContent
+    if (!isValidRustFileName(normalizedName)) {
+      return {
+        ok: false,
+        message: '補助ファイル名は .rs で終わる英数字ベースの名前にしてください。'
+      };
+    }
+
+    if (!trimOrEmpty(normalizedContent)) {
+      return {
+        ok: false,
+        message: '補助ファイルの中身が空です。'
+      };
+    }
+
+    if (hasFile(normalizedName)) {
+      return {
+        ok: false,
+        message: '同じ名前の補助ファイルは追加できません。'
+      };
+    }
+
+    const file = {
+      id: makeId('rust-sub'),
+      name: normalizedName,
+      content: normalizedContent
     };
 
-    store.files.push(item);
+    state.subFiles.push(file);
 
     return {
       ok: true,
-      message: '補助ファイルを追加しました。',
-      file: item
+      message: `補助ファイルを追加しました: ${normalizedName}`,
+      file: {
+        id: file.id,
+        name: file.name,
+        content: file.content
+      }
     };
   }
 
-  function removeFile(store, index) {
-    if (!Array.isArray(store.files)) {
-      return { ok: false, message: 'ファイル一覧が壊れています。' };
+  function removeFileByIndex(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= state.subFiles.length) {
+      return {
+        ok: false,
+        message: '削除対象の補助ファイルが見つかりません。'
+      };
     }
 
-    if (index < 0 || index >= store.files.length) {
-      return { ok: false, message: '削除対象が見つかりません。' };
-    }
-
-    const removed = store.files.splice(index, 1)[0];
+    const removed = state.subFiles.splice(index, 1)[0];
 
     return {
       ok: true,
-      message: '補助ファイルを削除しました。',
+      message: `補助ファイルを削除しました: ${removed.name}`,
       file: removed
     };
   }
 
-  function getFile(store, index) {
-    if (!Array.isArray(store.files)) {
-      return { ok: false, message: 'ファイル一覧が壊れています。' };
+  function getFileByIndex(index) {
+    if (!Number.isInteger(index) || index < 0 || index >= state.subFiles.length) {
+      return {
+        ok: false,
+        message: '対象の補助ファイルが見つかりません。'
+      };
     }
 
-    if (index < 0 || index >= store.files.length) {
-      return { ok: false, message: '対象ファイルが見つかりません。' };
-    }
+    const file = state.subFiles[index];
 
     return {
       ok: true,
-      file: store.files[index]
+      message: `補助ファイルを読み込みました: ${file.name}`,
+      file: {
+        id: file.id,
+        name: file.name,
+        content: file.content
+      }
     };
   }
 
-  function listFiles(store) {
-    if (!Array.isArray(store.files)) {
-      return [];
-    }
-
-    return store.files.slice();
-  }
-
-  function clearFiles(store) {
-    store.files = [];
+  function clearFiles() {
+    state.subFiles = [];
     return {
       ok: true,
       message: '補助ファイル一覧を初期化しました。'
     };
   }
 
+  function renderFileListHtml(files) {
+    const list = Array.isArray(files) ? files : getSubFiles();
+
+    if (!list.length) {
+      return [
+        '<div class="file-item">',
+        '  <span>補助Rustファイルはまだ追加されていません</span>',
+        '  <span>-</span>',
+        '</div>'
+      ].join('');
+    }
+
+    return list.map(function (file, index) {
+      const safeName = escapeHtml(file.name);
+      const safeLength = String((file.content || '').length);
+
+      return [
+        '<div class="file-item">',
+        `  <div class="file-item-main">`,
+        `    <strong>${safeName}</strong>`,
+        `    <span>文字数: ${safeLength}</span>`,
+        '  </div>',
+        '  <div class="file-item-actions">',
+        `    <button type="button" class="btn btn-muted" data-action="view-sub-file" data-index="${index}">表示</button>`,
+        `    <button type="button" class="btn btn-danger" data-action="remove-sub-file" data-index="${index}">削除</button>`,
+        '  </div>',
+        '</div>'
+      ].join('');
+    }).join('');
+  }
+
   global.RustFileManager = {
-    createStore,
+    getSubFiles,
+    setSubFiles,
     addFile,
-    removeFile,
-    getFile,
-    listFiles,
-    clearFiles
+    removeFileByIndex,
+    getFileByIndex,
+    clearFiles,
+    renderFileListHtml,
+    normalizeRustFileName,
+    isValidRustFileName
   };
 })(window);
