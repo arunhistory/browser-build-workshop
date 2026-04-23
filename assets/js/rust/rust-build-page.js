@@ -51,6 +51,15 @@
     return 'wasm-js';
   }
 
+  function escapeHtml(text) {
+    return String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function showStatus(message) {
     setText('buildStatus', '状態: ' + message);
   }
@@ -85,15 +94,6 @@
 
   function readSubFileCode() {
     return safeValue('subFileCode', '');
-  }
-
-  function escapeHtml(text) {
-    return String(text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
   }
 
   function renderSubFiles() {
@@ -203,11 +203,16 @@
       crateType: safeValue('crateType', 'cdylib').trim() || 'cdylib',
       version: safeValue('version', '0.1.0').trim() || '0.1.0',
       edition: safeValue('edition', '2021').trim() || '2021',
-      dependenciesText: safeValue('dependenciesText', '').trim(),
-      featuresText: safeValue('featuresText', '').trim(),
+      dependenciesText: safeValue('dependenciesText', ''),
+      featuresText: safeValue('featuresText', ''),
       cargoTomlText: safeValue('cargoToml', ''),
       mainRustCode: safeValue('mainRustCode', ''),
-      subFiles: state.subFiles.slice()
+      subFiles: state.subFiles.slice(),
+      flags: {
+        enableWasmBindgen: !!getEl('enableWasmBindgen') ? !!getEl('enableWasmBindgen').checked : true,
+        enableOptimize: !!getEl('enableOptimize') ? !!getEl('enableOptimize').checked : true,
+        enableJsLoader: !!getEl('enableJsLoader') ? !!getEl('enableJsLoader').checked : true
+      }
     };
   }
 
@@ -220,15 +225,29 @@
     setDisabled('copyOutputButton', locked);
   }
 
+  function getBuildRunner() {
+    if (global.RustBuildController && typeof global.RustBuildController.runBuild === 'function') {
+      return global.RustBuildController;
+    }
+
+    if (global.RustBuildEngine && typeof global.RustBuildEngine.runBuild === 'function') {
+      return global.RustBuildEngine;
+    }
+
+    return null;
+  }
+
   function runBuild() {
     if (state.isRunning) {
       showStatus('ビルド実行中です');
       return;
     }
 
-    if (!global.RustBuildController || typeof global.RustBuildController.runBuild !== 'function') {
-      showStatus('RustBuildController が見つかりません');
-      showLog('RustBuildController.runBuild が未定義です。');
+    const runner = getBuildRunner();
+
+    if (!runner) {
+      showStatus('Rustビルド本体が見つかりません');
+      showLog('RustBuildController.runBuild または RustBuildEngine.runBuild が未定義です。');
       return;
     }
 
@@ -241,7 +260,7 @@
 
     try {
       const input = collectInput();
-      const result = global.RustBuildController.runBuild(input);
+      const result = runner.runBuild(input);
 
       state.lastBuildResult = result;
 
@@ -301,6 +320,10 @@
     ].join('\n'));
     setValue('subFileName', '');
     setValue('subFileCode', '');
+
+    if (getEl('enableWasmBindgen')) getEl('enableWasmBindgen').checked = true;
+    if (getEl('enableOptimize')) getEl('enableOptimize').checked = true;
+    if (getEl('enableJsLoader')) getEl('enableJsLoader').checked = true;
 
     showLog('');
     showOutput('');
