@@ -17,15 +17,15 @@
   <main class="page">
     <section class="topbar">
       <div class="topbar-actions">
-        <button class="btn btn-muted" id="goHome">トップへ戻る</button>
-        <button class="btn btn-secondary" id="goTsPage">TS変換へ</button>
+        <button class="btn btn-muted" id="goHome" type="button">トップへ戻る</button>
+        <button class="btn btn-secondary" id="goTsPage" type="button">TS変換へ</button>
       </div>
 
       <div class="title-box">
         <h1>Rust Build</h1>
         <p>
           Rust を Wasm へ向けて整えるビルド作業ページ。
-          単一ファイル変換ではなく、複数ファイル・Cargo相当設定・出力管理まで見据えた土台として作る。
+          複数ファイル、Cargo相当設定、仮想FS、出力管理まで見据えた土台。
         </p>
       </div>
     </section>
@@ -59,7 +59,6 @@
               <option value="wasm-js">.wasm + loader.js</option>
               <option value="wasm-only">.wasmのみ</option>
               <option value="js-only">loader.jsのみ</option>
-              <option value="zip">ZIP一括</option>
             </select>
           </div>
         </div>
@@ -97,10 +96,10 @@
           <div class="field">
             <label for="edition">edition</label>
             <select id="edition">
-              <option value="2021">2021</option>
-              <option value="2024">2024</option>
-              <option value="2018">2018</option>
               <option value="2015">2015</option>
+              <option value="2018">2018</option>
+              <option value="2021" selected>2021</option>
+              <option value="2024">2024</option>
             </select>
           </div>
         </div>
@@ -115,7 +114,7 @@
           <textarea
             id="featuresText"
             spellcheck="false"
-            placeholder="必要なら features を 1行ずつ入れる"
+            placeholder="必要なら feature を1行ずつ入れる"
           ></textarea>
         </div>
 
@@ -163,23 +162,6 @@ pub fn greet(name: &str) -> String {
           ></textarea>
         </div>
 
-        <div class="checkboxes">
-          <label class="checkbox">
-            <input type="checkbox" id="enableWasmBindgen" checked />
-            wasm-bindgen を使う
-          </label>
-
-          <label class="checkbox">
-            <input type="checkbox" id="enableOptimize" checked />
-            出力最適化を有効にする
-          </label>
-
-          <label class="checkbox">
-            <input type="checkbox" id="enableJsLoader" checked />
-            loader.js を出力対象に含める
-          </label>
-        </div>
-
         <div class="file-list" id="subFilesList">
           <div class="file-item">
             <span>補助Rustファイルはまだ追加されていません</span>
@@ -188,14 +170,14 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="button-row">
-          <button class="btn btn-secondary" id="addSubFileButton">補助ファイルを追加</button>
-          <button class="btn btn-primary" id="runBuildButton">ビルドを実行</button>
-          <button class="btn btn-danger" id="clearAllButton">入力を初期化</button>
+          <button class="btn btn-secondary" id="addSubFileButton" type="button">補助ファイルを追加</button>
+          <button class="btn btn-primary" id="runBuildButton" type="button">ビルドを実行</button>
+          <button class="btn btn-danger" id="clearAllButton" type="button">入力を初期化</button>
         </div>
 
         <div class="notice">
-          現段階では疑似ビルド構造まで接続済み。
-          本物の Rust → Wasm コンパイル本体はまだ未接続。
+          現段階では疑似ビルド。  
+          入力検証、仮想FS構築、疑似出力生成までをページ内で処理する。
         </div>
       </article>
 
@@ -215,33 +197,26 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="field">
-          <label>ビルド概要</label>
-          <div class="summary-box" id="buildSummary"></div>
+          <label>ビルド要約</label>
+          <div class="summary-box" id="buildSummary">まだ要約はありません。</div>
         </div>
 
         <div class="button-row">
-          <button class="btn btn-muted" id="downloadOutputButton">出力を保存</button>
-          <button class="btn btn-muted" id="downloadLogButton">ログを保存</button>
-          <button class="btn btn-muted" id="copyOutputButton">出力をコピー</button>
+          <button class="btn btn-muted" id="downloadOutputButton" type="button">出力を保存</button>
+          <button class="btn btn-muted" id="downloadLogButton" type="button">ログを保存</button>
+          <button class="btn btn-muted" id="copyOutputButton" type="button">出力をコピー</button>
         </div>
 
         <div class="notice">
-          今は仮想FS・依存確認・疑似出力生成までを実行する。
-          実際の `.wasm` 生成は次段階で接続する。
+          実際の `.wasm` コンパイル本体はまだ未接続。  
+          先にページ末端を固めてから、依存管理・仮想FS・ビルド制御の心臓部へつなぐ。
         </div>
       </article>
     </section>
   </main>
 
-  <script src="../assets/js/common/navigation.js"></script>
-  <script src="../assets/js/common/download.js"></script>
-  <script src="../assets/js/common/clipboard.js"></script>
-  <script src="../assets/js/common/file-list.js"></script>
-  <script src="../assets/js/common/status.js"></script>
-
+  <script src="../assets/js/rust/rust-virtual-fs.js"></script>
   <script src="../assets/js/rust/rust-dependency-manager.js"></script>
-  <script src="../assets/js/rust/rust-build-engine.js"></script>
-  <script src="../assets/js/rust/rust-output-manager.js"></script>
   <script src="../assets/js/rust/rust-build-controller.js"></script>
   <script src="../assets/js/rust/rust-build-page.js"></script>
 </body>
