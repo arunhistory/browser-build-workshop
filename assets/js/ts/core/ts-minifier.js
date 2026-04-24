@@ -16,24 +16,23 @@
       outputCount: outputs.length
     });
 
-    const result = outputs.map((output) => {
-      const beforeSize = countBytes(output.code);
-      const minifiedCode = minifyJavaScript(output.code);
-      const afterSize = countBytes(minifiedCode);
+    const result = outputs.map(function (output) {
+      const beforeSize = countBytes(output.code || "");
+      const code = minifyJavaScript(output.code || "");
+      const afterSize = countBytes(code);
 
-      Logger.info(`${output.outputName}: 圧縮完了`, {
-        beforeSize,
-        afterSize,
+      Logger.info(output.outputName + ": 圧縮完了", {
+        beforeSize: beforeSize,
+        afterSize: afterSize,
         savedBytes: beforeSize - afterSize
       });
 
-      return {
-        ...output,
-        code: minifiedCode,
+      return Object.assign({}, output, {
+        code: code,
         minified: true,
         beforeMinifySize: beforeSize,
         afterMinifySize: afterSize
-      };
+      });
     });
 
     Logger.success("JS圧縮処理が完了しました。");
@@ -42,20 +41,23 @@
   }
 
   function minifyJavaScript(code) {
-    let result = String(code || "");
+    let source = String(code || "");
 
-    result = normalizeLineEndings(result);
-    result = removeBlockComments(result);
-    result = removeLineComments(result);
-    result = collapseWhitespace(result);
-    result = removeSpacesAroundSymbols(result);
-    result = cleanupSemicolons(result);
+    source = normalizeLineEndings(source);
+    source = removeBlockComments(source);
+    source = removeLineComments(source);
+    source = trimLines(source);
+    source = collapseBlankLines(source);
+    source = collapseSpaces(source);
+    source = removeSafeSpaces(source);
 
-    return result.trim();
+    return source.trim();
   }
 
   function normalizeLineEndings(code) {
-    return String(code || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    return String(code || "")
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n");
   }
 
   function removeBlockComments(code) {
@@ -63,15 +65,11 @@
   }
 
   function removeLineComments(code) {
-    const source = String(code || "");
-    const lines = source.split("\n");
-    const result = [];
+    const lines = String(code || "").split("\n");
 
-    for (const line of lines) {
-      result.push(removeLineCommentSafe(line));
-    }
-
-    return result.join("\n");
+    return lines.map(function (line) {
+      return removeLineCommentSafe(line);
+    }).join("\n");
   }
 
   function removeLineCommentSafe(line) {
@@ -123,71 +121,35 @@
     return line;
   }
 
-  function collapseWhitespace(code) {
-    let result = String(code || "");
-
-    result = result
+  function trimLines(code) {
+    return String(code || "")
       .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .join(" ");
-
-    result = result.replace(/\s+/g, " ");
-
-    return result;
+      .map(function (line) {
+        return line.trim();
+      })
+      .join("\n");
   }
 
-  function removeSpacesAroundSymbols(code) {
-    let result = String(code || "");
+  function collapseBlankLines(code) {
+    return String(code || "").replace(/\n{2,}/g, "\n");
+  }
 
-    const symbols = [
-      "\\{",
-      "\\}",
-      "\$begin:math:text$\"\,
-      \"\\$end:math:text$",
-      "\$begin:math:display$\"\,
-      \"\\$end:math:display$",
-      ";",
-      ",",
-      ":",
-      "=",
-      "\\+",
-      "-",
-      "\\*",
-      "/",
-      "%",
-      "<",
-      ">",
-      "\\?",
-      "\\|",
-      "&"
-    ];
+  function collapseSpaces(code) {
+    return String(code || "").replace(/[ \t]{2,}/g, " ");
+  }
 
-    for (const symbol of symbols) {
-      const pattern = new RegExp(`\\s*${symbol}\\s*`, "g");
-      const raw = symbol.replace(/\\/g, "");
-      result = result.replace(pattern, raw);
-    }
-
-    result = result
+  function removeSafeSpaces(code) {
+    return String(code || "")
+      .replace(/\s*([{}()[\];,])\s*/g, "$1")
+      .replace(/\s*([+\-*%=&|<>?:])\s*/g, "$1")
+      .replace(/([^=])=([^=>])/g, "$1=$2")
+      .replace(/=>/g, "=>")
       .replace(/===/g, "===")
       .replace(/!==/g, "!==")
-      .replace(/=>/g, "=>")
-      .replace(/\+\+/g, "++")
-      .replace(/--/g, "--")
-      .replace(/\|\|/g, "||")
-      .replace(/&&/g, "&&")
       .replace(/<=/g, "<=")
-      .replace(/>=/g, ">=");
-
-    return result;
-  }
-
-  function cleanupSemicolons(code) {
-    return String(code || "")
-      .replace(/;+/g, ";")
-      .replace(/;}/g, "}")
-      .replace(/{;/g, "{");
+      .replace(/>=/g, ">=")
+      .replace(/\|\|/g, "||")
+      .replace(/&&/g, "&&");
   }
 
   function countBytes(text) {
@@ -195,16 +157,17 @@
   }
 
   window.TSMinifier = {
-    minifyOutputs,
-    minifyJavaScript,
+    minifyOutputs: minifyOutputs,
+    minifyJavaScript: minifyJavaScript,
 
-    normalizeLineEndings,
-    removeBlockComments,
-    removeLineComments,
-    removeLineCommentSafe,
-    collapseWhitespace,
-    removeSpacesAroundSymbols,
-    cleanupSemicolons,
-    countBytes
+    normalizeLineEndings: normalizeLineEndings,
+    removeBlockComments: removeBlockComments,
+    removeLineComments: removeLineComments,
+    removeLineCommentSafe: removeLineCommentSafe,
+    trimLines: trimLines,
+    collapseBlankLines: collapseBlankLines,
+    collapseSpaces: collapseSpaces,
+    removeSafeSpaces: removeSafeSpaces,
+    countBytes: countBytes
   };
 })();
