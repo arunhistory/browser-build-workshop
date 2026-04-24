@@ -2,7 +2,7 @@
   'use strict';
 
   const MODULE_NAME = 'RustRealCompiler';
-  const MODULE_VERSION = '0.1.2';
+  const MODULE_VERSION = '0.1.3';
 
   function safeString(value, fallback = '') {
     if (typeof value === 'string') return value;
@@ -509,6 +509,47 @@
     return lines.join('\n');
   }
 
+  function buildOutputFileMap(artifacts) {
+    const map = {
+      wasm: null,
+      loaderJs: null,
+      exampleJs: null,
+      buildLog: null,
+      cargoToml: null
+    };
+
+    toArray(artifacts).forEach(function (file) {
+      if (!file || typeof file !== 'object') return;
+      const name = safeString(file.name || '');
+
+      if (name === 'build-log.txt') {
+        map.buildLog = clone(file);
+        return;
+      }
+
+      if (name === 'Cargo.toml') {
+        map.cargoToml = clone(file);
+        return;
+      }
+
+      if (name.endsWith('.wasm')) {
+        map.wasm = clone(file);
+        return;
+      }
+
+      if (name.endsWith('.loader.js')) {
+        map.loaderJs = clone(file);
+        return;
+      }
+
+      if (name.endsWith('.example.js')) {
+        map.exampleJs = clone(file);
+      }
+    });
+
+    return map;
+  }
+
   function compile(input) {
     const unwrapped = unwrapCompileInput(input);
     const config = collectConfig(unwrapped.source);
@@ -587,6 +628,8 @@
     const logText = makeLogText(config, virtualFs, result, artifacts);
     artifacts[0].content = logText;
 
+    const outputFileMap = buildOutputFileMap(artifacts);
+
     return {
       ok: result.ok,
       status: result.status,
@@ -601,6 +644,7 @@
       errors: clone(result.errors),
       warnings: clone(result.warnings),
       outputFiles: clone(artifacts),
+      outputFileMap: outputFileMap,
       logText: logText,
       outputText: makeReadableBundle(config, virtualFs, artifacts, result),
       summaryHtml: makeSummaryHtml(config, result, artifacts)
