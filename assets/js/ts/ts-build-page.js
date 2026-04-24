@@ -1,63 +1,19 @@
 (function () {
   "use strict";
 
+  const PAGE_VERSION = "ts-build-page-connected-diagnostic-v4";
   const els = {};
 
   document.addEventListener("DOMContentLoaded", function () {
-    try {
-      collectElements();
-      bootPage();
-    } catch (error) {
-      showFatalError(error);
-    }
+    collectElements();
+    bootPage();
   });
-
-  function bootPage() {
-    const missingModules = checkRequiredModules();
-
-    if (missingModules.length > 0) {
-      showFatalError(
-        new Error("必要モジュールが読み込まれていません: " + missingModules.join(", "))
-      );
-      return;
-    }
-
-    bindEvents();
-
-    window.TSBuildEngine.boot();
-
-    syncPageFromState();
-    renderAll();
-
-    writeLog("TS Build Page 起動完了");
-  }
-
-  function checkRequiredModules() {
-    const requiredModules = [
-      "ts",
-      "TSBuildState",
-      "TSFileStore",
-      "TSLogger",
-      "TSCompiler",
-      "TSMinifier",
-      "TSObfuscator",
-      "TSOutputManager",
-      "TSStorage",
-      "TSDownloader",
-      "TSBuildEngine"
-    ];
-
-    return requiredModules.filter(function (name) {
-      return !window[name];
-    });
-  }
 
   function collectElements() {
     els.goHome = document.getElementById("goHome");
     els.goRustPage = document.getElementById("goRustPage");
 
     els.projectName = document.getElementById("projectName");
-
     els.fileName =
       document.getElementById("fileName") ||
       document.getElementById("entryFileName");
@@ -81,15 +37,143 @@
     els.keepComments = document.getElementById("keepComments");
     els.strictMode = document.getElementById("strictMode");
 
-    els.runBuild = document.getElementById("runBuild");
+    els.runBuild =
+      document.getElementById("runBuild") ||
+      document.getElementById("runBuildButton");
+
     els.clearLog = document.getElementById("clearLog");
 
-    els.logOutput = document.getElementById("logOutput");
-    els.jsOutput = document.getElementById("jsOutput");
+    els.logOutput =
+      document.getElementById("logOutput") ||
+      document.getElementById("buildLog");
+
+    els.jsOutput =
+      document.getElementById("jsOutput") ||
+      document.getElementById("buildOutput");
 
     els.downloadJs = document.getElementById("downloadJs");
     els.downloadLog = document.getElementById("downloadLog");
     els.downloadAll = document.getElementById("downloadAll");
+  }
+
+  function bootPage() {
+    writeRawLog(makeDiagnosticText("BOOT"));
+
+    const missing = getMissingModules();
+
+    if (missing.length > 0) {
+      writeRawLog(
+        makeDiagnosticText("FATAL") +
+          "\n\n[FATAL] 必要モジュールが読み込まれていません: " +
+          missing.join(", ") +
+          "\n\nこのページJSは起動しています。\n" +
+          "つまり、問題は ts-build-page.js ではなく、上流モジュールの読み込みまたは実行停止です。"
+      );
+      return;
+    }
+
+    try {
+      bindEvents();
+      window.TSBuildEngine.boot();
+      syncPageFromState();
+      renderAll();
+
+      writeLog("TS Build Page 接続起動完了");
+    } catch (error) {
+      writeRawLog(
+        makeDiagnosticText("BOOT ERROR") +
+          "\n\n[ERROR] bootPage 内で例外が発生しました。\n" +
+          formatError(error)
+      );
+    }
+  }
+
+  function getRequiredModules() {
+    return [
+      "ts",
+      "TSBuildState",
+      "TSFileStore",
+      "TSLogger",
+      "TSCompiler",
+      "TSMinifier",
+      "TSObfuscator",
+      "TSOutputManager",
+      "TSStorage",
+      "TSDownloader",
+      "TSBuildEngine"
+    ];
+  }
+
+  function getMissingModules() {
+    return getRequiredModules().filter(function (name) {
+      return !window[name];
+    });
+  }
+
+  function makeDiagnosticText(label) {
+    const lines = [];
+
+    lines.push("=== TS Build Page Diagnostic ===");
+    lines.push("label: " + label);
+    lines.push("pageVersion: " + PAGE_VERSION);
+    lines.push("time: " + new Date().toISOString());
+    lines.push("");
+
+    getRequiredModules().forEach(function (name) {
+      lines.push("window." + name + ": " + Boolean(window[name]));
+    });
+
+    lines.push("");
+    lines.push("=== Script Tags ===");
+
+    Array.from(document.scripts).forEach(function (script, index) {
+      lines.push(index + ": " + (script.src || "[inline script]"));
+    });
+
+    lines.push("");
+    lines.push("=== Required Element Check ===");
+
+    [
+      "goHome",
+      "goRustPage",
+      "projectName",
+      "fileName/entryFileName",
+      "outputName",
+      "moduleMode",
+      "targetMode",
+      "tsInput/mainTsInput",
+      "runBuild/runBuildButton",
+      "logOutput/buildLog",
+      "jsOutput/buildOutput"
+    ].forEach(function (labelText) {
+      lines.push(labelText + ": " + hasElementGroup(labelText));
+    });
+
+    return lines.join("\n");
+  }
+
+  function hasElementGroup(labelText) {
+    if (labelText === "fileName/entryFileName") {
+      return Boolean(els.fileName);
+    }
+
+    if (labelText === "tsInput/mainTsInput") {
+      return Boolean(els.tsInput);
+    }
+
+    if (labelText === "runBuild/runBuildButton") {
+      return Boolean(els.runBuild);
+    }
+
+    if (labelText === "logOutput/buildLog") {
+      return Boolean(els.logOutput);
+    }
+
+    if (labelText === "jsOutput/buildOutput") {
+      return Boolean(els.jsOutput);
+    }
+
+    return Boolean(document.getElementById(labelText));
   }
 
   function bindEvents() {
@@ -104,10 +188,7 @@
     on(els.fileName, "change", function () {
       safeRun(function () {
         syncCurrentCode();
-
-        const nextName = getFileNameValue();
-        window.TSBuildEngine.renameActiveFile(nextName);
-
+        window.TSBuildEngine.renameActiveFile(getFileNameValue());
         syncPageFromState();
         renderAll();
       });
@@ -118,11 +199,9 @@
         syncCurrentCode();
 
         const name = prompt("追加するTSファイル名", createNextFileName());
-
         if (name === null) return;
 
         window.TSBuildEngine.addFile(name, "");
-
         syncPageFromState();
         renderAll();
       });
@@ -130,23 +209,17 @@
 
     on(els.deleteFile, "click", function () {
       safeRun(function () {
-        const files = window.TSBuildEngine.getFiles();
         const active = window.TSBuildEngine.getActiveFile();
 
         if (!active) {
           throw new Error("現在のファイルが見つかりません。");
         }
 
-        if (files.length <= 1) {
+        if (window.TSBuildEngine.getFiles().length <= 1) {
           throw new Error("最低1つのTSファイルが必要です。");
         }
 
-        const ok = confirm(active.name + " を削除しますか？");
-
-        if (!ok) return;
-
         window.TSBuildEngine.removeActiveFile();
-
         syncPageFromState();
         renderAll();
       });
@@ -194,7 +267,7 @@
       safeRun(function () {
         syncStateFromPage();
 
-        writeLog("変換実行ボタンを押しました。");
+        writeLog("変換実行ボタンを押しました。TSBuildEngine.build() を呼び出します。");
         setRunningUI(true);
 
         const result = window.TSBuildEngine.build();
@@ -202,16 +275,15 @@
         renderLog();
         renderOutput();
 
-        if (!result.ok) {
-          const message =
-            result.error && result.error.message
+        if (!result || !result.ok) {
+          throw new Error(
+            result && result.error && result.error.message
               ? result.error.message
-              : "TS変換に失敗しました。";
-
-          throw new Error(message);
+              : "TSBuildEngine.build() が失敗しました。"
+          );
         }
 
-        writeLog("変換処理が完了しました。");
+        writeLog("TSBuildEngine.build() が完了しました。");
         renderLog();
         renderOutput();
       });
@@ -286,20 +358,12 @@
       els.outputName.value = settings.outputName || "index.js";
     }
 
-    if (els.moduleMode) {
-      const moduleMode = settings.moduleMode || "esnext";
-
-      if (hasOption(els.moduleMode, moduleMode)) {
-        els.moduleMode.value = moduleMode;
-      }
+    if (els.moduleMode && settings.moduleMode && hasOption(els.moduleMode, settings.moduleMode)) {
+      els.moduleMode.value = settings.moduleMode;
     }
 
-    if (els.targetMode) {
-      const targetMode = settings.targetMode || "es2020";
-
-      if (hasOption(els.targetMode, targetMode)) {
-        els.targetMode.value = targetMode;
-      }
+    if (els.targetMode && settings.targetMode && hasOption(els.targetMode, settings.targetMode)) {
+      els.targetMode.value = settings.targetMode;
     }
 
     if (els.enableMinify) {
@@ -361,9 +425,7 @@
       button.addEventListener("click", function () {
         safeRun(function () {
           syncCurrentCode();
-
           window.TSBuildEngine.selectFile(file.id);
-
           syncPageFromState();
           renderAll();
         });
@@ -376,12 +438,15 @@
   function renderLog() {
     if (!els.logOutput) return;
 
-    if (window.TSBuildEngine && typeof window.TSBuildEngine.getLogText === "function") {
-      els.logOutput.textContent = window.TSBuildEngine.getLogText();
+    if (
+      window.TSBuildEngine &&
+      typeof window.TSBuildEngine.getLogText === "function"
+    ) {
+      writeRawLog(window.TSBuildEngine.getLogText());
       return;
     }
 
-    els.logOutput.textContent = "ログ取得機能が見つかりません。";
+    writeRawLog(makeDiagnosticText("LOG FALLBACK"));
   }
 
   function renderOutput() {
@@ -405,22 +470,13 @@
     renderLog();
   }
 
-  function showFatalError(error) {
-    const message =
-      error && error.message
-        ? error.message
-        : String(error || "unknown error");
+  function writeRawLog(text) {
+    if (!els.logOutput) return;
 
-    if (els.logOutput) {
-      els.logOutput.textContent =
-        "[FATAL] " + message + "\n\n" +
-        "確認するもの:\n" +
-        "1. typescript.js が ts-compiler.js より前に読み込まれているか\n" +
-        "2. core フォルダのファイル名が一致しているか\n" +
-        "3. ts-build-engine.js が ts-build-page.js より前に読み込まれているか\n" +
-        "4. HTML側のIDが不足していないか";
+    if ("value" in els.logOutput) {
+      els.logOutput.value = text || "";
     } else {
-      alert("[FATAL] " + message);
+      els.logOutput.textContent = text || "";
     }
   }
 
@@ -428,13 +484,12 @@
     try {
       return fn();
     } catch (error) {
-      const message =
-        error && error.message
-          ? error.message
-          : String(error || "unknown error");
+      const message = formatError(error);
 
       if (window.TSLogger && typeof window.TSLogger.error === "function") {
         window.TSLogger.error(message);
+      } else {
+        writeRawLog(makeDiagnosticText("RUNTIME ERROR") + "\n\n" + message);
       }
 
       renderLog();
@@ -449,16 +504,18 @@
     }
   }
 
+  function formatError(error) {
+    if (!error) return "unknown error";
+    if (error.stack) return String(error.stack);
+    if (error.message) return String(error.message);
+    return String(error);
+  }
+
   function getFileNameValue() {
     const value = els.fileName ? els.fileName.value.trim() : "";
 
-    if (!value) {
-      return "main.ts";
-    }
-
-    if (value.endsWith(".ts") || value.endsWith(".tsx")) {
-      return value;
-    }
+    if (!value) return "main.ts";
+    if (value.endsWith(".ts") || value.endsWith(".tsx")) return value;
 
     return value + ".ts";
   }
@@ -479,8 +536,6 @@
   }
 
   function hasOption(select, value) {
-    if (!select) return false;
-
     return Array.from(select.options).some(function (option) {
       return option.value === value;
     });
@@ -492,8 +547,8 @@
         ? forceValue
         : Boolean(
             window.TSBuildState &&
-            typeof window.TSBuildState.isRunning === "function" &&
-            window.TSBuildState.isRunning()
+              typeof window.TSBuildState.isRunning === "function" &&
+              window.TSBuildState.isRunning()
           );
 
     [
