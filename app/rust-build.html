@@ -196,6 +196,41 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="field">
+          <label>分解表示</label>
+          <div id="buildOutputFiles" class="build-output-files">
+            <div class="file-output-item">
+              <label for="fileOutputWasm">〇〇.wasm</label>
+              <textarea
+                id="fileOutputWasm"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              >まだ生成されていません。</textarea>
+            </div>
+
+            <div class="file-output-item">
+              <label for="fileOutputLoaderJs">〇〇.loader.js</label>
+              <textarea
+                id="fileOutputLoaderJs"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              >まだ生成されていません。</textarea>
+            </div>
+
+            <div class="file-output-item">
+              <label for="fileOutputExampleJs">〇〇.example.js</label>
+              <textarea
+                id="fileOutputExampleJs"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              >まだ生成されていません。</textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
           <label>ビルド要約</label>
           <div class="summary-box" id="buildSummary">まだ要約はありません。</div>
         </div>
