@@ -110,6 +110,25 @@
       .filter(Boolean);
   }
 
+  function pascalCase(value) {
+    return safeString(value)
+      .split(/[^a-zA-Z0-9]+/)
+      .filter(Boolean)
+      .map(function (part) {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join('') || 'RustProject';
+  }
+
+  function escapeHtml(text) {
+    return safeString(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
   function collectConfig(input) {
     const source = input || {};
 
@@ -246,17 +265,7 @@
     ].join('\n');
   }
 
-  function pascalCase(value) {
-    return safeString(value)
-      .split(/[^a-zA-Z0-9]+/)
-      .filter(Boolean)
-      .map(function (part) {
-        return part.charAt(0).toUpperCase() + part.slice(1);
-      })
-      .join('') || 'RustProject';
-  }
-
-  function makeOutputFiles(config, virtualFs, validation) {
+  function makeMockOutputFiles(config, virtualFs, validation) {
     const files = [];
     const baseName = config.projectName || 'rust-output';
     const ok = validation.errors.length === 0;
@@ -264,13 +273,13 @@
     files.push({
       name: 'build-log.txt',
       type: 'text/plain;charset=utf-8',
-      content: makeLogText(config, virtualFs, validation)
+      content: ''
     });
 
     files.push({
       name: 'Cargo.toml',
       type: 'text/plain;charset=utf-8',
-      content: virtualFs.files['/Cargo.toml'] || ''
+      content: (virtualFs.files && virtualFs.files['/Cargo.toml']) || ''
     });
 
     if (config.outputMode === 'wasm-js' || config.outputMode === 'wasm-only') {
@@ -292,7 +301,81 @@
     return files;
   }
 
-  function makeLogText(config, virtualFs, validation) {
+  function mergeCompileResult(config, virtualFs, compileResult, validation) {
+    const normalized = compileResult && typeof compileResult === 'object' ? compileResult : {};
+    const files = Array.isArray(normalized.outputFiles) ? clone(normalized.outputFiles) : [];
+    const errors = Array.isArray(normalized.errors) ? clone(normalized.errors) : [];
+    const warnings = Array.isArray(normalized.warnings) ? clone(normalized.warnings) : [];
+
+    if (errors.length) {
+      Array.prototype.push.apply(validation.errors, errors);
+    }
+
+    if (warnings.length) {
+      Array.prototype.push.apply(validation.warnings, warnings);
+    }
+
+    if (!files.length) {
+      return makeMockOutputFiles(config, virtualFs, validation);
+    }
+
+    const hasBuildLog = files.some(function (file) {
+      return file && file.name === 'build-log.txt';
+    });
+
+    const hasCargoToml = files.some(function (file) {
+      return file && file.name === 'Cargo.toml';
+    });
+
+    if (!hasBuildLog) {
+      files.unshift({
+        name: 'build-log.txt',
+        type: 'text/plain;charset=utf-8',
+        content: ''
+      });
+    }
+
+    if (!hasCargoToml) {
+      files.push({
+        name: 'Cargo.toml',
+        type: 'text/plain;charset=utf-8',
+        content: (virtualFs.files && virtualFs.files['/Cargo.toml']) || ''
+      });
+    }
+
+    return files;
+  }
+
+  function runCompiler(config, virtualFs) {
+    if (!global.RustCompiler || typeof global.RustCompiler.compile !== 'function') {
+      return {
+        ok: false,
+        mode: 'mock-fallback',
+        errors: [],
+        warnings: ['RustCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
+        outputFiles: []
+      };
+    }
+
+    try {
+      return global.RustCompiler.compile({
+        config: clone(config),
+        virtualFs: clone(virtualFs)
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        mode: 'compiler-exception',
+        errors: [
+          '本番コンパイル処理で例外が発生しました: ' + safeString(error && error.message ? error.message : error)
+        ],
+        warnings: [],
+        outputFiles: []
+      };
+    }
+  }
+
+  function makeLogText(config, virtualFs, validation, compileMeta) {
     const lines = [];
 
     lines.push('Rustビルドを開始しました。');
@@ -304,6 +387,10 @@
     lines.push('build mode: ' + config.buildMode);
     lines.push('crate type: ' + config.crateType);
     lines.push('output mode: ' + config.outputMode);
+    lines.push('');
+
+    lines.push('compile mode: ' + safeString(compileMeta.mode || 'unknown'));
+    lines.push('compiler connected: ' + String(!!compileMeta.connected));
     lines.push('');
 
     lines.push('virtual fs:');
@@ -338,7 +425,7 @@
     return lines.join('\n');
   }
 
-  function makeReadableOutput(config, virtualFs, validation, outputFiles) {
+  function makeReadableOutput(config, virtualFs, validation, outputFiles, compileMeta) {
     const lines = [];
 
     lines.push('// Rust build result');
@@ -348,6 +435,8 @@
     lines.push('// build mode: ' + config.buildMode);
     lines.push('// crate type: ' + config.crateType);
     lines.push('// output mode: ' + config.outputMode);
+    lines.push('// compile mode: ' + safeString(compileMeta.mode || 'unknown'));
+    lines.push('// compiler connected: ' + String(!!compileMeta.connected));
     lines.push('// status: ' + (validation.errors.length ? 'error' : 'success'));
     lines.push('');
 
@@ -358,7 +447,7 @@
 
     lines.push('');
     lines.push('// Cargo.toml');
-    lines.push(virtualFs.files['/Cargo.toml'] || '');
+    lines.push((virtualFs.files && virtualFs.files['/Cargo.toml']) || '');
 
     Object.keys(virtualFs.files || {})
       .sort()
@@ -390,7 +479,7 @@
     return lines.join('\n');
   }
 
-  function buildSummaryHtml(config, validation, outputFiles, virtualFs) {
+  function buildSummaryHtml(config, validation, outputFiles, virtualFs, compileMeta) {
     function makeList(items) {
       if (!items.length) return '<p>なし</p>';
       return '<ul>' + items.map(function (item) {
@@ -409,6 +498,8 @@
       '<p><strong>crate-type:</strong> ' + escapeHtml(config.crateType) + '</p>',
       '<p><strong>build-mode:</strong> ' + escapeHtml(config.buildMode) + '</p>',
       '<p><strong>output-mode:</strong> ' + escapeHtml(config.outputMode) + '</p>',
+      '<p><strong>compile-mode:</strong> ' + escapeHtml(safeString(compileMeta.mode || 'unknown')) + '</p>',
+      '<p><strong>compiler-connected:</strong> ' + escapeHtml(String(!!compileMeta.connected)) + '</p>',
       '<h4>仮想FS</h4>',
       makeList(paths),
       '<h4>エラー</h4>',
@@ -421,15 +512,6 @@
     ].join('');
   }
 
-  function escapeHtml(text) {
-    return safeString(text)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
   function runBuild(input) {
     const config = collectConfig(input);
     const validation = validateConfig(config);
@@ -438,10 +520,23 @@
     Array.prototype.push.apply(validation.errors, virtualFs.errors || []);
     Array.prototype.push.apply(validation.warnings, virtualFs.warnings || []);
 
-    const outputFiles = makeOutputFiles(config, virtualFs, validation);
-    const logText = makeLogText(config, virtualFs, validation);
-    const outputText = makeReadableOutput(config, virtualFs, validation, outputFiles);
-    const summaryHtml = buildSummaryHtml(config, validation, outputFiles, virtualFs);
+    const compileResult = runCompiler(config, virtualFs);
+    const compileMeta = {
+      connected: !!(global.RustCompiler && typeof global.RustCompiler.compile === 'function'),
+      mode: safeString(compileResult.mode || 'unknown')
+    };
+
+    const outputFiles = mergeCompileResult(config, virtualFs, compileResult, validation);
+    const logText = makeLogText(config, virtualFs, validation, compileMeta);
+
+    for (var i = 0; i < outputFiles.length; i += 1) {
+      if (outputFiles[i] && outputFiles[i].name === 'build-log.txt') {
+        outputFiles[i].content = logText;
+      }
+    }
+
+    const outputText = makeReadableOutput(config, virtualFs, validation, outputFiles, compileMeta);
+    const summaryHtml = buildSummaryHtml(config, validation, outputFiles, virtualFs, compileMeta);
 
     return {
       ok: validation.errors.length === 0,
@@ -455,13 +550,15 @@
       outputFiles: clone(outputFiles),
       logText: logText,
       outputText: outputText,
-      summaryHtml: summaryHtml
+      summaryHtml: summaryHtml,
+      compileMeta: clone(compileMeta)
     };
   }
 
   global.RustBuildController = {
     collectConfig: collectConfig,
     validateConfig: validateConfig,
-    runBuild: runBuild
+    runBuild: runBuild,
+    runCompiler: runCompiler
   };
 })(window);
