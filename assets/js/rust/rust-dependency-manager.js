@@ -21,6 +21,10 @@
     'console_error_panic_hook': {
       versions: ['0.1'],
       note: 'panicログ補助'
+    },
+    'sha2': {
+      versions: ['0.10'],
+      note: 'SHA-256などのハッシュ計算向け'
     }
   };
 
@@ -63,7 +67,7 @@
     if (!match) {
       return {
         ok: false,
-        error: `依存指定の形式が不正です: ${text}`
+        error: '依存指定の形式が不正です: ' + text
       };
     }
 
@@ -87,7 +91,7 @@
     if (!crate) {
       return {
         ok: false,
-        error: `未対応crateです: ${parsed.name}`
+        error: '未対応crateです: ' + parsed.name
       };
     }
 
@@ -98,7 +102,7 @@
     if (!matched) {
       return {
         ok: false,
-        error: `未対応バージョンです: ${parsed.name} = "${parsed.version}"`
+        error: '未対応バージョンです: ' + parsed.name + ' = "' + parsed.version + '"'
       };
     }
 
@@ -134,7 +138,7 @@
       }
 
       if (seen.has(validated.name)) {
-        warnings.push(`同じcrateが重複しています: ${validated.name}`);
+        warnings.push('同じcrateが重複しています: ' + validated.name);
       }
 
       seen.add(validated.name);
@@ -143,16 +147,16 @@
 
     return {
       ok: errors.length === 0,
-      errors,
-      warnings,
-      parsedList
+      errors: errors,
+      warnings: warnings,
+      parsedList: parsedList
     };
   }
 
   function getAllowedCrates() {
     return Object.keys(ALLOWED_CRATES).map(function (name) {
       return {
-        name,
+        name: name,
         versions: ALLOWED_CRATES[name].versions.slice(),
         note: ALLOWED_CRATES[name].note
       };
@@ -172,9 +176,9 @@
       items.map(function (item) {
         return [
           '    <li>',
-          `      <strong>${escapeHtml(item.name)}</strong>`,
-          `      <span>対応: ${escapeHtml(item.versions.join(', '))}</span>`,
-          `      <span>${escapeHtml(item.note)}</span>`,
+          '      <strong>' + escapeHtml(item.name) + '</strong>',
+          '      <span>対応: ' + escapeHtml(item.versions.join(', ')) + '</span>',
+          '      <span>' + escapeHtml(item.note) + '</span>',
           '    </li>'
         ].join('');
       }).join(''),
@@ -193,9 +197,9 @@
   }
 
   global.RustDependencyManager = {
-    getAllowedCrates,
-    validateDependencies,
-    buildAllowedCratesHtml,
-    normalizeDependencyLines
+    getAllowedCrates: getAllowedCrates,
+    validateDependencies: validateDependencies,
+    buildAllowedCratesHtml: buildAllowedCratesHtml,
+    normalizeDependencyLines: normalizeDependencyLines
   };
 })(window);
