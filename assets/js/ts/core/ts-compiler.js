@@ -12,11 +12,18 @@
       throw new Error("compileFiles requires files array");
     }
 
+    if (!window.ts || typeof window.ts.transpileModule !== "function") {
+      throw new Error(
+        "TypeScript公式コンパイラが読み込まれていません。typescript.js を ts-compiler.js より前に読み込んでください。"
+      );
+    }
+
     const safeSettings = normalizeSettings(settings);
     const outputs = [];
 
-    Logger.info("TSコンパイル処理を開始します。", {
+    Logger.info("TypeScript公式コンパイラによる変換を開始します。", {
       fileCount: files.length,
+      moduleMode: safeSettings.moduleMode,
       targetMode: safeSettings.targetMode
     });
 
@@ -25,7 +32,7 @@
       outputs.push(result);
     }
 
-    Logger.success("TSコンパイル処理が完了しました。", {
+    Logger.success("TypeScript公式コンパイラによる変換が完了しました。", {
       outputCount: outputs.length
     });
 
@@ -33,377 +40,255 @@
   }
 
   function compileSingleFile(file, settings) {
-    const fileName = file && file.name ? file.name : "unknown.ts";
+    const fileName = file && file.name ? file.name : "main.ts";
     const source = file && typeof file.code === "string" ? file.code : "";
 
-    Logger.compilerMessage(fileName, "コンパイル開始");
+    Logger.compilerMessage(fileName, "公式コンパイル開始");
 
-    const scan = scanSource(fileName, source);
+    const compilerOptions = {
+      module: toTsModuleKind(settings.moduleMode),
+      target: toTsScriptTarget(settings.targetMode),
+      strict: Boolean(settings.strictMode),
+      removeComments: settings.keepComments === false,
+      esModuleInterop: true,
+      skipLibCheck: true,
+      isolatedModules: true,
+      sourceMap: false,
+      inlineSourceMap: false,
+      inlineSources: false
+    };
 
-    for (const item of scan.warnings) {
-      Logger.lineWarn(fileName, item.line, item.message, item.text);
+    const result = window.ts.transpileModule(source, {
+      compilerOptions,
+      fileName,
+      reportDiagnostics: true
+    });
+
+    const diagnostics = Array.isArray(result.diagnostics)
+      ? result.diagnostics
+      : [];
+
+    const normalizedDiagnostics = diagnostics.map(function (diagnostic) {
+      return normalizeDiagnostic(source, fileName, diagnostic);
+    });
+
+    for (const item of normalizedDiagnostics) {
+      if (item.category === "Error") {
+        Logger.lineError(fileName, item.line, item.message, item.lineText);
+      } else if (item.category === "Warning") {
+        Logger.lineWarn(fileName, item.line, item.message, item.lineText);
+      } else {
+        Logger.compilerMessage(fileName, item.message);
+      }
     }
 
-    for (const item of scan.errors) {
-      Logger.lineError(fileName, item.line, item.message, item.text);
-    }
+    const hasError = normalizedDiagnostics.some(function (item) {
+      return item.category === "Error";
+    });
 
-    if (scan.errors.length > 0) {
-      throw new Error(`${fileName}: コンパイル前検査でエラーがあります`);
-    }
-
-    let code = source;
-
-    code = normalizeLineEndings(code);
-
-    if (!settings.keepComments) {
-      code = removeComments(code);
-      Logger.compilerMessage(fileName, "コメントを削除しました");
-    }
-
-    code = removeTypeOnlyImports(code);
-    code = removeDeclareBlocks(code);
-    code = removeInterfaces(code);
-    code = removeTypeAliases(code);
-    code = convertEnums(code, fileName);
-    code = removeNamespaces(code, fileName);
-    code = removeAccessModifiers(code);
-    code = removeImplements(code);
-    code = removeAbstractKeyword(code);
-    code = removeReadonlyKeyword(code);
-    code = removeOptionalMarks(code);
-    code = removeGenericDeclarations(code);
-    code = removeTypeAnnotations(code);
-    code = removeAsCasts(code);
-    code = removeSatisfies(code);
-    code = removeNonNullAssertions(code);
-    code = processExports(code, settings.targetMode, fileName);
-    code = processImports(code, settings.targetMode, fileName);
-    code = cleanupJavaScript(code);
-
-    if (settings.strictMode) {
-      code = `"use strict";\n\n${code}`;
+    if (hasError) {
+      throw new Error(fileName + ": TypeScript変換エラーがあります。");
     }
 
     const outputName = toOutputName(fileName);
 
-    Logger.compilerMessage(fileName, `出力生成: ${outputName}`);
+    Logger.compilerMessage(fileName, "出力生成: " + outputName);
 
     return {
       inputName: fileName,
       outputName,
-      code,
-      warnings: scan.warnings,
-      errors: []
+      code: result.outputText || "",
+      warnings: normalizedDiagnostics.filter(function (item) {
+        return item.category === "Warning";
+      }),
+      errors: normalizedDiagnostics.filter(function (item) {
+        return item.category === "Error";
+      })
     };
   }
 
   function normalizeSettings(settings) {
     return {
-      targetMode: settings && settings.targetMode ? settings.targetMode : "browser",
-      keepComments: settings && typeof settings.keepComments === "boolean" ? settings.keepComments : true,
-      strictMode: settings && typeof settings.strictMode === "boolean" ? settings.strictMode : true
+      moduleMode:
+        settings && settings.moduleMode
+          ? String(settings.moduleMode)
+          : "esnext",
+
+      targetMode:
+        settings && settings.targetMode
+          ? normalizeTargetMode(settings.targetMode)
+          : "es2020",
+
+      keepComments:
+        settings && typeof settings.keepComments === "boolean"
+          ? settings.keepComments
+          : true,
+
+      strictMode:
+        settings && typeof settings.strictMode === "boolean"
+          ? settings.strictMode
+          : true
     };
   }
 
-  function scanSource(fileName, source) {
-    const lines = String(source || "").split(/\r?\n/);
-    const warnings = [];
-    const errors = [];
+  function normalizeTargetMode(value) {
+    const raw = String(value || "es2020").toLowerCase();
 
-    lines.forEach((line, index) => {
-      const lineNo = index + 1;
-      const text = line;
+    /*
+      古いページ設定との互換。
+      browser/module/node は target ではないため、ES2020に寄せる。
+    */
+    if (raw === "browser") return "es2020";
+    if (raw === "module") return "es2020";
+    if (raw === "node") return "es2020";
 
-      if (/\bawait\b/.test(text) && !/\basync\b/.test(source)) {
-        warnings.push({
-          line: lineNo,
-          message: "await を検出しました。トップレベルawaitは実行環境に依存します。",
-          text
-        });
-      }
+    return raw;
+  }
 
-      if (/\bimport\s*\(/.test(text)) {
-        warnings.push({
-          line: lineNo,
-          message: "dynamic import を検出しました。簡易コンパイラでは完全変換しません。",
-          text
-        });
-      }
+  function toTsModuleKind(value) {
+    const ts = window.ts;
+    const mode = String(value || "esnext").toLowerCase();
 
-      if (/\bdecorator\b/.test(text) || /^\s*@\w+/.test(text)) {
-        warnings.push({
-          line: lineNo,
-          message: "デコレーター構文を検出しました。簡易コンパイラでは未対応です。",
-          text
-        });
-      }
+    if (mode === "none") return ts.ModuleKind.None;
+    if (mode === "commonjs") return ts.ModuleKind.CommonJS;
+    if (mode === "amd") return ts.ModuleKind.AMD;
+    if (mode === "umd") return ts.ModuleKind.UMD;
+    if (mode === "system") return ts.ModuleKind.System;
+    if (mode === "es2015") return ts.ModuleKind.ES2015;
+    if (mode === "es2020") return ts.ModuleKind.ES2020;
+    if (mode === "es2022") return ts.ModuleKind.ES2022;
+    if (mode === "esnext") return ts.ModuleKind.ESNext;
+    if (mode === "node16") return ts.ModuleKind.Node16;
+    if (mode === "nodenext") return ts.ModuleKind.NodeNext;
 
-      if (/\bnamespace\b/.test(text)) {
-        warnings.push({
-          line: lineNo,
-          message: "namespace を検出しました。簡易的に展開します。",
-          text
-        });
-      }
-    });
+    return ts.ModuleKind.ESNext;
+  }
 
-    if (hasUnbalancedBrackets(source, "{", "}")) {
-      errors.push({
-        line: 1,
-        message: "波括弧の数が一致していません。",
-        text: ""
-      });
-    }
+  function toTsScriptTarget(value) {
+    const ts = window.ts;
+    const target = String(value || "es2020").toLowerCase();
 
-    if (hasUnbalancedBrackets(source, "(", ")")) {
-      errors.push({
-        line: 1,
-        message: "丸括弧の数が一致していません。",
-        text: ""
-      });
-    }
+    if (target === "es3") return ts.ScriptTarget.ES3;
+    if (target === "es5") return ts.ScriptTarget.ES5;
+    if (target === "es6") return ts.ScriptTarget.ES2015;
+    if (target === "es2015") return ts.ScriptTarget.ES2015;
+    if (target === "es2016") return ts.ScriptTarget.ES2016;
+    if (target === "es2017") return ts.ScriptTarget.ES2017;
+    if (target === "es2018") return ts.ScriptTarget.ES2018;
+    if (target === "es2019") return ts.ScriptTarget.ES2019;
+    if (target === "es2020") return ts.ScriptTarget.ES2020;
+    if (target === "es2021") return ts.ScriptTarget.ES2021;
+    if (target === "es2022") return ts.ScriptTarget.ES2022;
+    if (target === "esnext") return ts.ScriptTarget.ESNext;
+
+    return ts.ScriptTarget.ES2020;
+  }
+
+  function normalizeDiagnostic(source, fileName, diagnostic) {
+    const category = diagnosticCategoryToText(diagnostic.category);
+    const message = flattenDiagnosticMessage(diagnostic.messageText);
+    const position = getDiagnosticPosition(source, diagnostic);
 
     return {
-      warnings,
-      errors
+      fileName,
+      category,
+      line: position.line,
+      character: position.character,
+      message,
+      lineText: position.lineText,
+      code: diagnostic.code || null
     };
   }
 
-  function hasUnbalancedBrackets(source, open, close) {
-    let count = 0;
-    let inSingle = false;
-    let inDouble = false;
-    let inTemplate = false;
-    let escaped = false;
-
-    for (const char of String(source || "")) {
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-
-      if (char === "\\") {
-        escaped = true;
-        continue;
-      }
-
-      if (!inDouble && !inTemplate && char === "'") {
-        inSingle = !inSingle;
-        continue;
-      }
-
-      if (!inSingle && !inTemplate && char === "\"") {
-        inDouble = !inDouble;
-        continue;
-      }
-
-      if (!inSingle && !inDouble && char === "`") {
-        inTemplate = !inTemplate;
-        continue;
-      }
-
-      if (inSingle || inDouble || inTemplate) continue;
-
-      if (char === open) count++;
-      if (char === close) count--;
-
-      if (count < 0) return true;
+  function diagnosticCategoryToText(category) {
+    if (!window.ts || !window.ts.DiagnosticCategory) {
+      return "Message";
     }
 
-    return count !== 0;
-  }
-
-  function normalizeLineEndings(code) {
-    return String(code || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  }
-
-  function removeComments(code) {
-    return code
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/(^|[^:])\/\/.*$/gm, "$1");
-  }
-
-  function removeTypeOnlyImports(code) {
-    return code.replace(/^\s*import\s+type\s+.+?;?\s*$/gm, "");
-  }
-
-  function removeDeclareBlocks(code) {
-    code = code.replace(/^\s*declare\s+global\s*{[\s\S]*?^\s*}\s*$/gm, "");
-    code = code.replace(/^\s*declare\s+module\s+["'][^"']+["']\s*{[\s\S]*?^\s*}\s*$/gm, "");
-    code = code.replace(/^\s*declare\s+.+?;?\s*$/gm, "");
-    return code;
-  }
-
-  function removeInterfaces(code) {
-    return code
-      .replace(/^\s*export\s+interface\s+\w+[\s\S]*?^\s*}\s*;?\s*$/gm, "")
-      .replace(/^\s*interface\s+\w+[\s\S]*?^\s*}\s*;?\s*$/gm, "");
-  }
-
-  function removeTypeAliases(code) {
-    return code
-      .replace(/^\s*export\s+type\s+\w+[\s\S]*?;\s*$/gm, "")
-      .replace(/^\s*type\s+\w+[\s\S]*?;\s*$/gm, "");
-  }
-
-  function convertEnums(code, fileName) {
-    return code.replace(/(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)\s*{([\s\S]*?)}/g, function (_, enumName, body) {
-      Logger.compilerWarning(fileName, `enum ${enumName} を簡易オブジェクトへ変換します`);
-
-      const members = body
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-
-      const lines = [];
-      let autoValue = 0;
-
-      for (const member of members) {
-        const parts = member.split("=").map((v) => v.trim());
-        const key = parts[0].replace(/["']/g, "");
-        let value;
-
-        if (parts.length >= 2) {
-          value = parts.slice(1).join("=");
-          const numeric = Number(value);
-
-          if (Number.isFinite(numeric)) {
-            autoValue = numeric + 1;
-          }
-        } else {
-          value = String(autoValue);
-          autoValue++;
-        }
-
-        lines.push(`  ${JSON.stringify(key)}: ${value}`);
-      }
-
-      return `const ${enumName} = Object.freeze({\n${lines.join(",\n")}\n});`;
-    });
-  }
-
-  function removeNamespaces(code, fileName) {
-    return code.replace(/(?:export\s+)?namespace\s+([A-Za-z_$][\w$]*)\s*{([\s\S]*?)}/g, function (_, namespaceName, body) {
-      Logger.compilerWarning(fileName, `namespace ${namespaceName} を簡易展開します`);
-      return `const ${namespaceName} = (function(){\n${body}\nreturn {};\n})();`;
-    });
-  }
-
-  function removeAccessModifiers(code) {
-    return code.replace(/\b(public|private|protected)\s+/g, "");
-  }
-
-  function removeImplements(code) {
-    return code.replace(/\s+implements\s+[A-Za-z0-9_$,\s<>]+/g, "");
-  }
-
-  function removeAbstractKeyword(code) {
-    return code.replace(/\babstract\s+/g, "");
-  }
-
-  function removeReadonlyKeyword(code) {
-    return code.replace(/\breadonly\s+/g, "");
-  }
-
-  function removeOptionalMarks(code) {
-    return code.replace(/([A-Za-z_$][\w$]*)\?\s*:/g, "$1:");
-  }
-
-  function removeGenericDeclarations(code) {
-    code = code.replace(/function\s+([A-Za-z_$][\w$]*)\s*<[^>]+>\s*\(/g, "function $1(");
-    code = code.replace(/class\s+([A-Za-z_$][\w$]*)\s*<[^>]+>/g, "class $1");
-    code = code.replace(/const\s+([A-Za-z_$][\w$]*)\s*=\s*<[^>]+>\s*\(/g, "const $1 = (");
-    return code;
-  }
-
-  function removeTypeAnnotations(code) {
-    code = code.replace(/:\s*[A-Za-z_$][A-Za-z0-9_$<>,\s$begin:math:display$$end:math:display$\|&?.]*(?=\s*[=,);{])/g, "");
-    code = code.replace(/\)\s*:\s*[A-Za-z_$][A-Za-z0-9_$<>,\s$begin:math:display$$end:math:display$\|&?.]*\s*{/g, ") {");
-    code = code.replace(/\)\s*:\s*[A-Za-z_$][A-Za-z0-9_$<>,\s$begin:math:display$$end:math:display$\|&?.]*\s*=>/g, ") =>");
-    return code;
-  }
-
-  function removeAsCasts(code) {
-    return code.replace(/\s+as\s+[A-Za-z_$][A-Za-z0-9_$<>,\s$begin:math:display$$end:math:display$\|&?.]*/g, "");
-  }
-
-  function removeSatisfies(code) {
-    return code.replace(/\s+satisfies\s+[A-Za-z_$][A-Za-z0-9_$<>,\s$begin:math:display$$end:math:display$\|&?.]*/g, "");
-  }
-
-  function removeNonNullAssertions(code) {
-    return code.replace(/([A-Za-z_$][\w$]*)!(?=[.\[\);,])/g, "$1");
-  }
-
-  function processExports(code, targetMode, fileName) {
-    if (targetMode === "module") {
-      return code;
+    if (category === window.ts.DiagnosticCategory.Error) {
+      return "Error";
     }
 
-    if (/\bexport\b/.test(code)) {
-      Logger.compilerWarning(fileName, "browser/node mode のため export を簡易除去します");
+    if (category === window.ts.DiagnosticCategory.Warning) {
+      return "Warning";
     }
 
-    code = code.replace(/^\s*export\s+default\s+/gm, "");
-    code = code.replace(/^\s*export\s+(?=class|function|const|let|var|enum)/gm, "");
-    code = code.replace(/^\s*export\s*{[^}]+};?\s*$/gm, "");
+    if (category === window.ts.DiagnosticCategory.Suggestion) {
+      return "Suggestion";
+    }
 
-    return code;
+    return "Message";
   }
 
-  function processImports(code, targetMode, fileName) {
-    if (targetMode === "module") {
-      return code;
+  function flattenDiagnosticMessage(messageText) {
+    if (typeof messageText === "string") {
+      return messageText;
     }
 
-    if (/^\s*import\s+/m.test(code)) {
-      Logger.compilerWarning(fileName, "browser/node mode のため import を削除します");
+    if (
+      window.ts &&
+      typeof window.ts.flattenDiagnosticMessageText === "function"
+    ) {
+      return window.ts.flattenDiagnosticMessageText(messageText, "\n");
     }
 
-    return code.replace(/^\s*import\s+.+?;?\s*$/gm, "");
+    return String(messageText || "");
   }
 
-  function cleanupJavaScript(code) {
-    return String(code || "")
-      .replace(/[ \t]+$/gm, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+  function getDiagnosticPosition(source, diagnostic) {
+    const text = String(source || "");
+    const lines = text.split(/\r?\n/);
+
+    if (typeof diagnostic.start !== "number") {
+      return {
+        line: 1,
+        character: 1,
+        lineText: lines[0] || ""
+      };
+    }
+
+    const before = text.slice(0, diagnostic.start);
+    const beforeLines = before.split(/\r?\n/);
+
+    const line = beforeLines.length;
+    const character = beforeLines[beforeLines.length - 1].length + 1;
+
+    return {
+      line,
+      character,
+      lineText: lines[line - 1] || ""
+    };
   }
 
   function toOutputName(fileName) {
-    return String(fileName || "main.ts")
-      .replace(/\.tsx$/i, ".js")
-      .replace(/\.ts$/i, ".js");
+    const name = String(fileName || "main.ts");
+
+    if (/\.tsx$/i.test(name)) {
+      return name.replace(/\.tsx$/i, ".js");
+    }
+
+    if (/\.ts$/i.test(name)) {
+      return name.replace(/\.ts$/i, ".js");
+    }
+
+    return name + ".js";
   }
 
   window.TSCompiler = {
     compileFiles,
     compileSingleFile,
 
-    scanSource,
+    normalizeSettings,
+    normalizeTargetMode,
 
-    normalizeLineEndings,
-    removeComments,
-    removeTypeOnlyImports,
-    removeDeclareBlocks,
-    removeInterfaces,
-    removeTypeAliases,
-    convertEnums,
-    removeNamespaces,
-    removeAccessModifiers,
-    removeImplements,
-    removeAbstractKeyword,
-    removeReadonlyKeyword,
-    removeOptionalMarks,
-    removeGenericDeclarations,
-    removeTypeAnnotations,
-    removeAsCasts,
-    removeSatisfies,
-    removeNonNullAssertions,
-    processExports,
-    processImports,
-    cleanupJavaScript,
+    toTsModuleKind,
+    toTsScriptTarget,
+
+    normalizeDiagnostic,
+    diagnosticCategoryToText,
+    flattenDiagnosticMessage,
+    getDiagnosticPosition,
+
     toOutputName
   };
 })();
