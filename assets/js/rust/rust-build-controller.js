@@ -131,6 +131,23 @@
     };
   }
 
+  function validateDependenciesWithManager(config, errors, warnings) {
+    if (!global.RustDependencyManager || typeof global.RustDependencyManager.validateDependencies !== 'function') {
+      warnings.push('RustDependencyManager が見つからないため、依存関係検証をスキップしました。');
+      return;
+    }
+
+    const dependencyResult = global.RustDependencyManager.validateDependencies(config.dependenciesText);
+
+    if (dependencyResult && Array.isArray(dependencyResult.errors) && dependencyResult.errors.length) {
+      Array.prototype.push.apply(errors, dependencyResult.errors);
+    }
+
+    if (dependencyResult && Array.isArray(dependencyResult.warnings) && dependencyResult.warnings.length) {
+      Array.prototype.push.apply(warnings, dependencyResult.warnings);
+    }
+  }
+
   function validateConfig(config) {
     const errors = [];
     const warnings = [];
@@ -174,6 +191,14 @@
         warnings.push('dependencies の形式を確認してください: ' + line);
       }
     });
+
+    normalizeFeatures(config.featuresText).forEach(function (line) {
+      if (!line.includes('=')) {
+        warnings.push('features の形式を確認してください: ' + line);
+      }
+    });
+
+    validateDependenciesWithManager(config, errors, warnings);
 
     return {
       errors: errors,
