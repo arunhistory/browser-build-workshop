@@ -13,19 +13,20 @@
   />
   <link rel="stylesheet" href="../assets/css/common.css" />
 </head>
+
 <body>
   <main class="page">
     <section class="topbar">
       <div class="topbar-actions">
-        <button class="btn btn-muted" id="goHome">トップへ戻る</button>
-        <button class="btn btn-secondary" id="goRustPage">Rust変換へ</button>
+        <button class="btn btn-muted" id="goHome" type="button">トップへ戻る</button>
+        <button class="btn btn-secondary" id="goRustPage" type="button">Rust変換へ</button>
       </div>
 
       <div class="title-box">
         <h1>TS Build</h1>
         <p>
           TypeScript を JavaScript へ変換するための作業ページ。
-          単一入力だけでなく、補助ファイル・出力名・出力内容確認まで含めた土台として扱う。
+          入力・補助ファイル・設定・ログ・出力確認まで含めた土台です。
         </p>
       </div>
     </section>
@@ -35,88 +36,111 @@
         <h2>入力と設定</h2>
 
         <div class="field">
-          <label for="projectName">プロジェクト名</label>
+          <label for="fileName">現在のファイル名</label>
           <input
             type="text"
-            id="projectName"
-            placeholder="例: sample-ts-project"
-            value="sample-ts-project"
+            id="fileName"
+            placeholder="例: main.ts"
+            value="main.ts"
           />
         </div>
 
-        <div class="row">
-          <div class="field">
-            <label for="entryFileName">エントリーファイル名</label>
-            <input
-              type="text"
-              id="entryFileName"
-              placeholder="例: main.ts"
-              value="main.ts"
-            />
-          </div>
-
-          <div class="field">
-            <label for="outputFileName">出力ファイル名</label>
-            <input
-              type="text"
-              id="outputFileName"
-              placeholder="例: index.js"
-              value="index.js"
-            />
-          </div>
-        </div>
-
-        <div class="row">
-          <div class="field">
-            <label for="moduleType">module</label>
-            <select id="moduleType">
-              <option value="esnext">esnext</option>
-              <option value="commonjs">commonjs</option>
-              <option value="system">system</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label for="targetType">target</label>
-            <select id="targetType">
-              <option value="es2020">es2020</option>
-              <option value="es2019">es2019</option>
-              <option value="es2017">es2017</option>
-              <option value="es6">es6</option>
-            </select>
-          </div>
+        <div class="button-row">
+          <button class="btn btn-secondary" id="addFile" type="button">ファイル追加</button>
+          <button class="btn btn-danger" id="deleteFile" type="button">現在のファイル削除</button>
         </div>
 
         <div class="field">
-          <label for="mainTsCode">メインTypeScriptコード</label>
-          <textarea id="mainTsCode" spellcheck="false">const message: string = "browser-build-workshop";
-const version: number = 1;
+          <label>ファイル一覧</label>
+          <div id="fileList" class="file-list"></div>
+        </div>
 
-function boot(name: string): string {
-  return `hello ${name}`;
+        <div class="field">
+          <label for="tsInput">TypeScriptコード</label>
+          <textarea id="tsInput" class="code-area" spellcheck="false">import type { ExternalUser } from "./types";
+import { helper } from "./helper";
+
+type User = {
+  id: number;
+  name: string;
+  age?: number;
+};
+
+interface Profile {
+  title: string;
+  level: number;
 }
 
-console.log(message, version);
-console.log(boot("TypeScript"));
-</textarea>
+enum Role {
+  Guest,
+  Member = 10,
+  Admin
+}
+
+const user: User = {
+  id: 1,
+  name: "Orikuro",
+  age: 20
+};
+
+let count: number = 0;
+
+function hello(target: User): string {
+  return `Hello, ${target.name}`;
+}
+
+const add = (a: number, b: number): number => {
+  return a + b;
+};
+
+class Account implements Profile {
+  public title: string = "main";
+  private secret: string = "hidden";
+  protected level: number = 1;
+  readonly owner: string = "owner";
+
+  constructor(name: string) {
+    this.title = name;
+  }
+
+  public show(): string {
+    return `${this.title}:${this.level}`;
+  }
+}
+
+const account = new Account(user.name);
+
+const result = hello(user);
+const sum = add(1, 2);
+const role = Role.Admin;
+
+console.log(result);
+console.log(sum);
+console.log(role);
+console.log(account.show());
+
+export function exportedTest(value: User): string {
+  return value.name as string;
+}</textarea>
         </div>
 
         <div class="field">
-          <label for="subFileName">補助ファイル名</label>
+          <label for="outputName">出力ファイル名</label>
           <input
             type="text"
-            id="subFileName"
-            placeholder="例: utils.ts"
+            id="outputName"
+            placeholder="例: index.js"
+            value="index.js"
           />
         </div>
 
         <div class="field">
-          <label for="subFileCode">補助TypeScriptコード</label>
-          <textarea
-            id="subFileCode"
-            spellcheck="false"
-            placeholder="ここに補助TSファイルの中身を入れる"
-          ></textarea>
+          <label for="targetMode">ターゲットモード</label>
+          <select id="targetMode">
+            <option value="browser" selected>browser</option>
+            <option value="module">module</option>
+            <option value="node">node</option>
+          </select>
         </div>
 
         <div class="checkboxes">
@@ -126,76 +150,74 @@ console.log(boot("TypeScript"));
           </label>
 
           <label class="checkbox">
-            <input type="checkbox" id="enableObfuscation" />
+            <input type="checkbox" id="enableObfuscate" />
             難読化を有効にする
           </label>
 
           <label class="checkbox">
-            <input type="checkbox" id="enableSourceMap" />
-            source map を出力対象に含める
+            <input type="checkbox" id="keepComments" checked />
+            コメントを残す
+          </label>
+
+          <label class="checkbox">
+            <input type="checkbox" id="strictMode" checked />
+            "use strict" を付ける
           </label>
         </div>
 
-        <div class="file-list" id="subFilesList">
-          <div class="file-item">
-            <span>補助ファイルはまだ追加されていません</span>
-            <span>-</span>
-          </div>
-        </div>
-
         <div class="button-row">
-          <button class="btn btn-secondary" id="addSubFileButton">補助ファイルを追加</button>
-          <button class="btn btn-primary" id="runBuildButton">変換を実行</button>
-          <button class="btn btn-danger" id="clearAllButton">入力を初期化</button>
-        </div>
-
-        <div class="notice">
-          この段階では本物のTS変換本体は未接続。
-          先にUIとファイル管理構造を固め、その後で実変換処理を追加する。
+          <button class="btn btn-muted" id="saveDraft" type="button">下書き保存</button>
+          <button class="btn btn-muted" id="loadDraft" type="button">下書き読込</button>
         </div>
       </article>
 
       <article class="panel">
-        <h2>状態・ログ・出力</h2>
+        <h2>変換実行</h2>
 
-        <div class="status" id="buildStatus">状態: 待機中</div>
-
-        <div class="field">
-          <label>変換ログ</label>
-          <div class="log-box" id="buildLog">まだ実行されていません。</div>
+        <div class="button-row">
+          <button class="btn btn-primary" id="runBuild" type="button">変換実行</button>
+          <button class="btn btn-danger" id="clearLog" type="button">ログ削除</button>
         </div>
 
         <div class="field">
-          <label>出力内容</label>
-          <div class="output-box" id="buildOutput">まだ出力はありません。</div>
+          <label for="logOutput">変換ログ</label>
+          <pre id="logOutput" class="log-box">待機中...</pre>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>JavaScript出力</h2>
+
+        <div class="field">
+          <label for="jsOutput">出力内容</label>
+          <textarea
+            id="jsOutput"
+            class="code-area"
+            spellcheck="false"
+            readonly
+            placeholder="変換後の JavaScript がここに表示されます"
+          ></textarea>
         </div>
 
         <div class="button-row">
-          <button class="btn btn-muted" id="downloadOutputButton">出力を保存</button>
-          <button class="btn btn-muted" id="copyOutputButton">出力をコピー</button>
-        </div>
-
-        <div class="notice">
-          今は仮出力として、変換設定と入力コードを整形表示する。
-          実際のTS→JS変換は後で内部モジュールを足して接続する。
+          <button class="btn btn-secondary" id="downloadJs" type="button">JSを保存</button>
+          <button class="btn btn-secondary" id="downloadLog" type="button">ログを保存</button>
+          <button class="btn btn-secondary" id="downloadAll" type="button">まとめて保存</button>
         </div>
       </article>
     </section>
   </main>
 
-  <script src="../assets/js/common/navigation.js"></script>
-  <script src="../assets/js/common/download.js"></script>
-  <script src="../assets/js/common/clipboard.js"></script>
-  <script src="../assets/js/common/file-list.js"></script>
-  <script src="../assets/js/common/status.js"></script>
   <script src="../assets/js/ts/core/ts-state.js"></script>
-<script src="../assets/js/ts/core/ts-file-store.js"></script>
-<script src="../assets/js/ts/core/ts-logger.js"></script>
-<script src="../assets/js/ts/core/ts-compiler.js"></script>
-<script src="../assets/js/ts/core/ts-minifier.js"></script>
-<script src="../assets/js/ts/core/ts-obfuscator.js"></script>
-<script src="../assets/js/ts/core/ts-output-manager.js"></script>
-<script src="../assets/js/ts/core/ts-storage.js"></script>
-<script src="../assets/js/ts/core/ts-downloader.js"></script>
-<script src="../assets/js/ts/ts-build-engine.js"></script>
-<script src="../assets/js/ts/ts-build-page.js"></script></html>
+  <script src="../assets/js/ts/core/ts-file-store.js"></script>
+  <script src="../assets/js/ts/core/ts-logger.js"></script>
+  <script src="../assets/js/ts/core/ts-compiler.js"></script>
+  <script src="../assets/js/ts/core/ts-minifier.js"></script>
+  <script src="../assets/js/ts/core/ts-obfuscator.js"></script>
+  <script src="../assets/js/ts/core/ts-output-manager.js"></script>
+  <script src="../assets/js/ts/core/ts-storage.js"></script>
+  <script src="../assets/js/ts/core/ts-downloader.js"></script>
+  <script src="../assets/js/ts/ts-build-engine.js"></script>
+  <script src="../assets/js/ts/ts-build-page.js"></script>
+</body>
+</html>
