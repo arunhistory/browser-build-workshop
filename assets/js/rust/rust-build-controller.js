@@ -347,33 +347,34 @@
   }
 
   function runCompiler(config, virtualFs) {
-    if (!global.RustRealCompiler || typeof global.RustRealCompiler.compile !== 'function') {
-      return {
-        ok: false,
-        mode: 'mock-fallback',
-        errors: [],
-        warnings: ['RustRealCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
-        outputFiles: []
-      };
-    }
-
-    try {
-      return global.RustRealCompiler.compile({
-        config: clone(config),
-        virtualFs: clone(virtualFs)
-      });
-    } catch (error) {
-      return {
-        ok: false,
-        mode: 'compiler-exception',
-        errors: [
-          '本番コンパイル処理で例外が発生しました: ' + safeString(error && error.message ? error.message : error)
-        ],
-        warnings: [],
-        outputFiles: []
-      };
-    }
+  if (!global.RustRealCompiler || typeof global.RustRealCompiler.compile !== 'function') {
+    return {
+      ok: false,
+      mode: 'mock-fallback',
+      errors: [],
+      warnings: ['RustRealCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
+      outputFiles: []
+    };
   }
+
+  try {
+    return global.RustRealCompiler.compile(
+      Object.assign({}, clone(config), {
+        virtualFs: clone(virtualFs)
+      })
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      mode: 'compiler-exception',
+      errors: [
+        '本番コンパイル処理で例外が発生しました: ' + safeString(error && error.message ? error.message : error)
+      ],
+      warnings: [],
+      outputFiles: []
+    };
+  }
+}
 
   function makeLogText(config, virtualFs, validation, compileMeta) {
     const lines = [];
