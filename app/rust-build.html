@@ -176,8 +176,7 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          現段階では疑似ビルド。  
-          入力検証、仮想FS構築、疑似出力生成までをページ内で処理する。
+          入力検証、依存確認、仮想FS構築、モジュール管理、コンパイラ接続までをこのページから呼び出します。
         </div>
       </article>
 
@@ -208,8 +207,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          実際の `.wasm` コンパイル本体はまだ未接続。  
-          先にページ末端を固めてから、依存管理・仮想FS・ビルド制御の心臓部へつなぐ。
+          `rust-build-module-manager.js` と `rust-real-compiler.js` を先に読み込み、
+          その上で controller と page から利用する構成です。
         </div>
       </article>
     </section>
@@ -217,6 +216,8 @@ pub fn greet(name: &str) -> String {
 
   <script src="../assets/js/rust/rust-virtual-fs.js"></script>
   <script src="../assets/js/rust/rust-dependency-manager.js"></script>
+  <script src="../assets/js/rust/rust-build-module-manager.js"></script>
+  <script src="../assets/js/rust/rust-real-compiler.js"></script>
   <script src="../assets/js/rust/rust-build-controller.js"></script>
   <script src="../assets/js/rust/rust-build-page.js"></script>
 </body>
