@@ -347,18 +347,18 @@
   }
 
   function runCompiler(config, virtualFs) {
-    if (!global.RustCompiler || typeof global.RustCompiler.compile !== 'function') {
+    if (!global.RustRealCompiler || typeof global.RustRealCompiler.compile !== 'function') {
       return {
         ok: false,
         mode: 'mock-fallback',
         errors: [],
-        warnings: ['RustCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
+        warnings: ['RustRealCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
         outputFiles: []
       };
     }
 
     try {
-      return global.RustCompiler.compile({
+      return global.RustRealCompiler.compile({
         config: clone(config),
         virtualFs: clone(virtualFs)
       });
@@ -522,7 +522,7 @@
 
     const compileResult = runCompiler(config, virtualFs);
     const compileMeta = {
-      connected: !!(global.RustCompiler && typeof global.RustCompiler.compile === 'function'),
+      connected: !!(global.RustRealCompiler && typeof global.RustRealCompiler.compile === 'function'),
       mode: safeString(compileResult.mode || 'unknown')
     };
 
