@@ -2,7 +2,7 @@
   'use strict';
 
   const MODULE_NAME = 'RustRealCompiler';
-  const MODULE_VERSION = '0.1.0';
+  const MODULE_VERSION = '0.1.1';
 
   function safeString(value, fallback = '') {
     if (typeof value === 'string') return value;
@@ -85,6 +85,25 @@
       .filter(Boolean);
   }
 
+  function unwrapCompileInput(input) {
+    if (
+      input &&
+      typeof input === 'object' &&
+      input.config &&
+      typeof input.config === 'object'
+    ) {
+      return {
+        source: input.config,
+        incomingVirtualFs: input.virtualFs && typeof input.virtualFs === 'object' ? input.virtualFs : null
+      };
+    }
+
+    return {
+      source: input || {},
+      incomingVirtualFs: input && input.virtualFs && typeof input.virtualFs === 'object' ? input.virtualFs : null
+    };
+  }
+
   function buildCargoToml(config) {
     const lines = [];
 
@@ -162,8 +181,29 @@
     };
   }
 
+  function normalizeVirtualFsShape(virtualFs) {
+    if (!virtualFs || typeof virtualFs !== 'object') {
+      return {
+        ok: false,
+        entryPath: '',
+        files: {},
+        errors: ['virtualFs が不正です。'],
+        warnings: []
+      };
+    }
+
+    return {
+      ok: typeof virtualFs.ok === 'boolean' ? virtualFs.ok : true,
+      entryPath: safeString(virtualFs.entryPath || ''),
+      files: virtualFs.files && typeof virtualFs.files === 'object' ? clone(virtualFs.files) : {},
+      errors: Array.isArray(virtualFs.errors) ? clone(virtualFs.errors) : [],
+      warnings: Array.isArray(virtualFs.warnings) ? clone(virtualFs.warnings) : []
+    };
+  }
+
   function collectConfig(input) {
-    const source = input || {};
+    const unwrapped = unwrapCompileInput(input);
+    const source = unwrapped.source || {};
     const entryPoint = trimOrEmpty(source.entryPoint || 'lib.rs') || 'lib.rs';
     const entryTarget = inferEntryTarget(entryPoint);
     let crateType = trimOrEmpty(source.crateType || 'cdylib') || 'cdylib';
@@ -321,6 +361,7 @@
     lines.push('// build mode: ' + config.buildMode);
     lines.push('// crate type: ' + config.crateType);
     lines.push('// output mode: ' + config.outputMode);
+    lines.push('// compile mode: ' + safeString(compileResult.mode || 'real'));
     lines.push('// status: ' + (compileResult.ok ? 'success' : 'error'));
     lines.push('');
 
@@ -383,6 +424,7 @@
       '<p><strong>バージョン:</strong> ' + escapeHtml(MODULE_VERSION) + '</p>',
       '<p><strong>ビルドID:</strong> ' + escapeHtml(config.buildId) + '</p>',
       '<p><strong>状態:</strong> ' + escapeHtml(result.status) + '</p>',
+      '<p><strong>compile-mode:</strong> ' + escapeHtml(safeString(result.mode || 'real')) + '</p>',
       '<p><strong>プロジェクト:</strong> ' + escapeHtml(config.projectName) + '</p>',
       '<p><strong>entry:</strong> ' + escapeHtml(config.entryPoint) + '</p>',
       '<p><strong>build-mode:</strong> ' + escapeHtml(config.buildMode) + '</p>',
@@ -411,6 +453,7 @@
     lines.push('build mode: ' + config.buildMode);
     lines.push('crate type: ' + config.crateType);
     lines.push('output mode: ' + config.outputMode);
+    lines.push('compile mode: ' + safeString(result.mode || 'real'));
     lines.push('');
 
     lines.push('virtual fs:');
@@ -448,10 +491,14 @@
   }
 
   function compile(input) {
-    const config = collectConfig(input);
+    const unwrapped = unwrapCompileInput(input);
+    const config = collectConfig(unwrapped.source);
     const baseValidation = validateCompileRequest(config);
     const dependencyValidation = resolveDependencyCheck(config);
-    const virtualFs = buildVirtualFs(config);
+
+    const virtualFs = unwrapped.incomingVirtualFs
+      ? normalizeVirtualFsShape(unwrapped.incomingVirtualFs)
+      : buildVirtualFs(config);
 
     const errors = [];
     const warnings = [];
@@ -505,6 +552,7 @@
     const result = {
       ok: compileOk,
       status: compileOk ? 'success' : 'error',
+      mode: 'real',
       errors: errors,
       warnings: warnings,
       artifactNames: artifactNames,
@@ -517,6 +565,7 @@
     return {
       ok: result.ok,
       status: result.status,
+      mode: result.mode,
       compileKind: result.compileKind,
       moduleName: MODULE_NAME,
       moduleVersion: MODULE_VERSION,
