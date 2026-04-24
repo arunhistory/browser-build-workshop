@@ -108,13 +108,17 @@
   }
 
   function clearSeparatedOutputs() {
-    setLabelTextByFor('fileOutputWasm', '〇〇.wasm');
-    setLabelTextByFor('fileOutputLoaderJs', '〇〇.loader.js');
-    setLabelTextByFor('fileOutputExampleJs', '〇〇.example.js');
+    setLabelTextByFor('outputFileBuildLog', 'build-log.txt');
+    setLabelTextByFor('outputFileBundle', 'bundle / outputText');
+    setLabelTextByFor('outputFileWasm', '.wasm');
+    setLabelTextByFor('outputFileLoaderJs', '.loader.js');
+    setLabelTextByFor('outputFileExampleJs', '.example.js');
 
-    setTextareaOrText('fileOutputWasm', 'まだ生成されていません。');
-    setTextareaOrText('fileOutputLoaderJs', 'まだ生成されていません。');
-    setTextareaOrText('fileOutputExampleJs', 'まだ生成されていません。');
+    setTextareaOrText('outputFileBuildLog', 'まだ生成されていません。');
+    setTextareaOrText('outputFileBundle', 'まだ生成されていません。');
+    setTextareaOrText('outputFileWasm', 'まだ生成されていません。');
+    setTextareaOrText('outputFileLoaderJs', 'まだ生成されていません。');
+    setTextareaOrText('outputFileExampleJs', 'まだ生成されていません。');
   }
 
   function findOutputFileByName(outputFiles, exactName) {
@@ -144,32 +148,51 @@
 
     if (outputFileMap) {
       setLabelTextByFor(
-        'fileOutputWasm',
-        outputFileMap.wasm && outputFileMap.wasm.name ? outputFileMap.wasm.name : '〇〇.wasm'
+        'outputFileBuildLog',
+        outputFileMap.buildLog && outputFileMap.buildLog.name ? outputFileMap.buildLog.name : 'build-log.txt'
+      );
+      setLabelTextByFor('outputFileBundle', 'bundle / outputText');
+      setLabelTextByFor(
+        'outputFileWasm',
+        outputFileMap.wasm && outputFileMap.wasm.name ? outputFileMap.wasm.name : '.wasm'
       );
       setLabelTextByFor(
-        'fileOutputLoaderJs',
-        outputFileMap.loaderJs && outputFileMap.loaderJs.name ? outputFileMap.loaderJs.name : '〇〇.loader.js'
+        'outputFileLoaderJs',
+        outputFileMap.loaderJs && outputFileMap.loaderJs.name ? outputFileMap.loaderJs.name : '.loader.js'
       );
       setLabelTextByFor(
-        'fileOutputExampleJs',
-        outputFileMap.exampleJs && outputFileMap.exampleJs.name ? outputFileMap.exampleJs.name : '〇〇.example.js'
+        'outputFileExampleJs',
+        outputFileMap.exampleJs && outputFileMap.exampleJs.name ? outputFileMap.exampleJs.name : '.example.js'
       );
 
       setTextareaOrText(
-        'fileOutputWasm',
+        'outputFileBuildLog',
+        outputFileMap.buildLog && typeof outputFileMap.buildLog.content === 'string'
+          ? outputFileMap.buildLog.content
+          : 'まだ生成されていません。'
+      );
+
+      setTextareaOrText(
+        'outputFileBundle',
+        typeof (result && result.outputText) === 'string' && result.outputText
+          ? result.outputText
+          : 'まだ生成されていません。'
+      );
+
+      setTextareaOrText(
+        'outputFileWasm',
         outputFileMap.wasm && typeof outputFileMap.wasm.content === 'string'
           ? outputFileMap.wasm.content
           : 'まだ生成されていません。'
       );
       setTextareaOrText(
-        'fileOutputLoaderJs',
+        'outputFileLoaderJs',
         outputFileMap.loaderJs && typeof outputFileMap.loaderJs.content === 'string'
           ? outputFileMap.loaderJs.content
           : 'まだ生成されていません。'
       );
       setTextareaOrText(
-        'fileOutputExampleJs',
+        'outputFileExampleJs',
         outputFileMap.exampleJs && typeof outputFileMap.exampleJs.content === 'string'
           ? outputFileMap.exampleJs.content
           : 'まだ生成されていません。'
@@ -178,17 +201,30 @@
     }
 
     const outputFiles = Array.isArray(result && result.outputFiles) ? result.outputFiles : [];
+    const buildLogFile = findOutputFileByName(outputFiles, 'build-log.txt');
     const wasmFile = findOutputFileByExt(outputFiles, '.wasm');
     const loaderJsFile = findOutputFileByExt(outputFiles, '.loader.js');
     const exampleJsFile = findOutputFileByExt(outputFiles, '.example.js');
 
-    setLabelTextByFor('fileOutputWasm', wasmFile ? wasmFile.name : '〇〇.wasm');
-    setLabelTextByFor('fileOutputLoaderJs', loaderJsFile ? loaderJsFile.name : '〇〇.loader.js');
-    setLabelTextByFor('fileOutputExampleJs', exampleJsFile ? exampleJsFile.name : '〇〇.example.js');
+    setLabelTextByFor('outputFileBuildLog', buildLogFile ? buildLogFile.name : 'build-log.txt');
+    setLabelTextByFor('outputFileBundle', 'bundle / outputText');
+    setLabelTextByFor('outputFileWasm', wasmFile ? wasmFile.name : '.wasm');
+    setLabelTextByFor('outputFileLoaderJs', loaderJsFile ? loaderJsFile.name : '.loader.js');
+    setLabelTextByFor('outputFileExampleJs', exampleJsFile ? exampleJsFile.name : '.example.js');
 
-    setTextareaOrText('fileOutputWasm', wasmFile ? (wasmFile.content || '') : 'まだ生成されていません。');
-    setTextareaOrText('fileOutputLoaderJs', loaderJsFile ? (loaderJsFile.content || '') : 'まだ生成されていません。');
-    setTextareaOrText('fileOutputExampleJs', exampleJsFile ? (exampleJsFile.content || '') : 'まだ生成されていません。');
+    setTextareaOrText(
+      'outputFileBuildLog',
+      buildLogFile ? (buildLogFile.content || '') : 'まだ生成されていません。'
+    );
+    setTextareaOrText(
+      'outputFileBundle',
+      result && typeof result.outputText === 'string' && result.outputText
+        ? result.outputText
+        : 'まだ生成されていません。'
+    );
+    setTextareaOrText('outputFileWasm', wasmFile ? (wasmFile.content || '') : 'まだ生成されていません。');
+    setTextareaOrText('outputFileLoaderJs', loaderJsFile ? (loaderJsFile.content || '') : 'まだ生成されていません。');
+    setTextareaOrText('outputFileExampleJs', exampleJsFile ? (exampleJsFile.content || '') : 'まだ生成されていません。');
   }
 
   function readSubFileName() {
@@ -595,14 +631,20 @@
     if (!getEl('downloadLogButton')) {
       console.warn('downloadLogButton が見つかりません');
     }
-    if (!getEl('fileOutputWasm')) {
-      console.warn('fileOutputWasm フィールドが見つかりません');
+    if (!getEl('outputFileBuildLog')) {
+      console.warn('outputFileBuildLog フィールドが見つかりません');
     }
-    if (!getEl('fileOutputLoaderJs')) {
-      console.warn('fileOutputLoaderJs フィールドが見つかりません');
+    if (!getEl('outputFileBundle')) {
+      console.warn('outputFileBundle フィールドが見つかりません');
     }
-    if (!getEl('fileOutputExampleJs')) {
-      console.warn('fileOutputExampleJs フィールドが見つかりません');
+    if (!getEl('outputFileWasm')) {
+      console.warn('outputFileWasm フィールドが見つかりません');
+    }
+    if (!getEl('outputFileLoaderJs')) {
+      console.warn('outputFileLoaderJs フィールドが見つかりません');
+    }
+    if (!getEl('outputFileExampleJs')) {
+      console.warn('outputFileExampleJs フィールドが見つかりません');
     }
   }
 
