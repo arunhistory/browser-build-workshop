@@ -24,40 +24,68 @@
 
       <div class="title-box">
         <h1>TS Build</h1>
-        <p>
-          TypeScript を JavaScript へ変換するための作業ページ。
-          入力・補助ファイル・設定・ログ・出力確認まで含めた土台です。
-        </p>
+        <p>TypeScript を JavaScript へ変換するためのビルド作業ページ</p>
       </div>
     </section>
 
-    <section class="layout">
-      <article class="panel">
-        <h2>入力と設定</h2>
+    <section class="panel">
+      <h2>プロジェクト設定</h2>
 
-        <div class="field">
-          <label for="fileName">現在のファイル名</label>
-          <input
-            type="text"
-            id="fileName"
-            placeholder="例: main.ts"
-            value="main.ts"
-          />
-        </div>
+      <div class="form-row">
+        <label for="projectName">プロジェクト名</label>
+        <input id="projectName" type="text" value="sample-ts-project" />
+      </div>
 
-        <div class="button-row">
-          <button class="btn btn-secondary" id="addFile" type="button">ファイル追加</button>
-          <button class="btn btn-danger" id="deleteFile" type="button">現在のファイル削除</button>
-        </div>
+      <div class="form-row">
+        <label for="fileName">エントリーファイル名</label>
+        <input id="fileName" type="text" value="main.ts" />
+      </div>
 
-        <div class="field">
-          <label>ファイル一覧</label>
-          <div id="fileList" class="file-list"></div>
-        </div>
+      <div class="form-row">
+        <label for="outputName">出力ファイル名</label>
+        <input id="outputName" type="text" value="index.js" />
+      </div>
 
-        <div class="field">
-          <label for="tsInput">TypeScriptコード</label>
-          <textarea id="tsInput" class="code-area" spellcheck="false">import type { ExternalUser } from "./types";
+      <div class="form-row">
+        <label for="moduleMode">module</label>
+        <select id="moduleMode">
+          <option value="esnext" selected>esnext</option>
+          <option value="commonjs">commonjs</option>
+          <option value="none">none</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label for="targetMode">target</label>
+        <select id="targetMode">
+          <option value="browser" selected>browser</option>
+          <option value="module">module</option>
+          <option value="node">node</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>ファイル管理</h2>
+
+      <div class="button-row">
+        <button class="btn btn-secondary" id="addFile" type="button">ファイル追加</button>
+        <button class="btn btn-muted" id="deleteFile" type="button">現在のファイル削除</button>
+        <button class="btn btn-muted" id="saveDraft" type="button">下書き保存</button>
+        <button class="btn btn-muted" id="loadDraft" type="button">下書き読込</button>
+      </div>
+
+      <div id="fileList" class="file-list"></div>
+    </section>
+
+    <section class="panel">
+      <h2>メインTypeScriptコード</h2>
+
+      <textarea
+        id="tsInput"
+        class="code-area"
+        spellcheck="false"
+      >import type { ExternalUser } from "./types";
 import { helper } from "./helper";
 
 type User = {
@@ -122,89 +150,60 @@ console.log(account.show());
 export function exportedTest(value: User): string {
   return value.name as string;
 }</textarea>
-        </div>
+    </section>
 
-        <div class="field">
-          <label for="outputName">出力ファイル名</label>
-          <input
-            type="text"
-            id="outputName"
-            placeholder="例: index.js"
-            value="index.js"
-          />
-        </div>
+    <section class="panel">
+      <h2>変換オプション</h2>
 
-        <div class="field">
-          <label for="targetMode">ターゲットモード</label>
-          <select id="targetMode">
-            <option value="browser" selected>browser</option>
-            <option value="module">module</option>
-            <option value="node">node</option>
-          </select>
-        </div>
+      <div class="checkboxes">
+        <label class="checkbox">
+          <input id="enableMinify" type="checkbox" />
+          圧縮を有効にする
+        </label>
 
-        <div class="checkboxes">
-          <label class="checkbox">
-            <input type="checkbox" id="enableMinify" />
-            圧縮を有効にする
-          </label>
+        <label class="checkbox">
+          <input id="enableObfuscate" type="checkbox" />
+          難読化を有効にする
+        </label>
 
-          <label class="checkbox">
-            <input type="checkbox" id="enableObfuscate" />
-            難読化を有効にする
-          </label>
+        <label class="checkbox">
+          <input id="keepComments" type="checkbox" checked />
+          コメントを残す
+        </label>
 
-          <label class="checkbox">
-            <input type="checkbox" id="keepComments" checked />
-            コメントを残す
-          </label>
+        <label class="checkbox">
+          <input id="strictMode" type="checkbox" checked />
+          "use strict" を付ける
+        </label>
+      </div>
 
-          <label class="checkbox">
-            <input type="checkbox" id="strictMode" checked />
-            "use strict" を付ける
-          </label>
-        </div>
+      <div class="button-row">
+        <button class="btn btn-primary" id="runBuild" type="button">変換実行</button>
+        <button class="btn btn-muted" id="clearLog" type="button">ログ削除</button>
+      </div>
+    </section>
 
-        <div class="button-row">
-          <button class="btn btn-muted" id="saveDraft" type="button">下書き保存</button>
-          <button class="btn btn-muted" id="loadDraft" type="button">下書き読込</button>
-        </div>
-      </article>
+    <section class="panel">
+      <h2>ログ</h2>
+      <pre id="logOutput" class="log-box">待機中...</pre>
+    </section>
 
-      <article class="panel">
-        <h2>変換実行</h2>
+    <section class="panel">
+      <h2>JavaScript出力</h2>
 
-        <div class="button-row">
-          <button class="btn btn-primary" id="runBuild" type="button">変換実行</button>
-          <button class="btn btn-danger" id="clearLog" type="button">ログ削除</button>
-        </div>
+      <textarea
+        id="jsOutput"
+        class="code-area"
+        spellcheck="false"
+        readonly
+        placeholder="変換後の JavaScript がここに表示されます"
+      ></textarea>
 
-        <div class="field">
-          <label for="logOutput">変換ログ</label>
-          <pre id="logOutput" class="log-box">待機中...</pre>
-        </div>
-      </article>
-
-      <article class="panel">
-        <h2>JavaScript出力</h2>
-
-        <div class="field">
-          <label for="jsOutput">出力内容</label>
-          <textarea
-            id="jsOutput"
-            class="code-area"
-            spellcheck="false"
-            readonly
-            placeholder="変換後の JavaScript がここに表示されます"
-          ></textarea>
-        </div>
-
-        <div class="button-row">
-          <button class="btn btn-secondary" id="downloadJs" type="button">JSを保存</button>
-          <button class="btn btn-secondary" id="downloadLog" type="button">ログを保存</button>
-          <button class="btn btn-secondary" id="downloadAll" type="button">まとめて保存</button>
-        </div>
-      </article>
+      <div class="button-row">
+        <button class="btn btn-secondary" id="downloadJs" type="button">JS保存</button>
+        <button class="btn btn-secondary" id="downloadLog" type="button">ログ保存</button>
+        <button class="btn btn-secondary" id="downloadAll" type="button">まとめて保存</button>
+      </div>
     </section>
   </main>
 
