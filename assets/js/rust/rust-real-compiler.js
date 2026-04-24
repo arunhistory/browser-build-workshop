@@ -2,7 +2,7 @@
   'use strict';
 
   const MODULE_NAME = 'RustRealCompiler';
-  const MODULE_VERSION = '0.1.1';
+  const MODULE_VERSION = '0.1.2';
 
   function safeString(value, fallback = '') {
     if (typeof value === 'string') return value;
@@ -315,7 +315,7 @@
 
   function chooseArtifactNames(config) {
     const baseName = config.projectName || 'rust-output';
-    const names = [];
+    const names = ['build-log.txt', 'Cargo.toml'];
 
     if (config.outputMode === 'wasm-js' || config.outputMode === 'wasm-only') {
       names.push(baseName + '.wasm');
@@ -323,6 +323,7 @@
 
     if (config.outputMode === 'wasm-js' || config.outputMode === 'js-only') {
       names.push(baseName + '.loader.js');
+      names.push(baseName + '.example.js');
     }
 
     return names;
@@ -344,6 +345,24 @@
       '    buildId: ' + JSON.stringify(config.buildId),
       '  };',
       '}'
+    ].join('\n');
+  }
+
+  function makeExampleJs(config) {
+    const loaderFunctionName = 'load' + pascalCase(config.projectName || 'RustProject');
+    const loaderFileName = './' + config.projectName + '.loader.js';
+
+    return [
+      '// example usage',
+      '// project: ' + config.projectName,
+      "import { " + loaderFunctionName + " } from '" + loaderFileName + "';",
+      '',
+      'async function runExample() {',
+      '  const mod = await ' + loaderFunctionName + '();',
+      '  console.log("loaded module:", mod);',
+      '}',
+      '',
+      'runExample().catch(console.error);'
     ].join('\n');
   }
 
@@ -546,6 +565,12 @@
         name: config.projectName + '.loader.js',
         type: 'application/javascript;charset=utf-8',
         content: makeLoaderJs(config, compileOk)
+      });
+
+      artifacts.push({
+        name: config.projectName + '.example.js',
+        type: 'application/javascript;charset=utf-8',
+        content: makeExampleJs(config)
       });
     }
 
