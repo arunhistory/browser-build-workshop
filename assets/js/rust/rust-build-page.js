@@ -128,45 +128,40 @@
   }
 
   function splitOutputFiles(result) {
-    const outputFileMap =
-      result && result.outputFileMap && typeof result.outputFileMap === 'object'
-        ? result.outputFileMap
-        : null;
+    const outputFileMap = result && result.outputFileMap && typeof result.outputFileMap === 'object'
+      ? result.outputFileMap
+      : null;
 
     if (outputFileMap) {
-      const wasmFile = outputFileMap.wasm || null;
-      const loaderJsFile = outputFileMap.loaderJs || null;
-      const exampleJsFile = outputFileMap.exampleJs || null;
-
       setLabelTextByFor(
         'fileOutputWasm',
-        wasmFile && wasmFile.name ? wasmFile.name : '〇〇.wasm'
+        outputFileMap.wasm && outputFileMap.wasm.name ? outputFileMap.wasm.name : '〇〇.wasm'
       );
       setLabelTextByFor(
         'fileOutputLoaderJs',
-        loaderJsFile && loaderJsFile.name ? loaderJsFile.name : '〇〇.loader.js'
+        outputFileMap.loaderJs && outputFileMap.loaderJs.name ? outputFileMap.loaderJs.name : '〇〇.loader.js'
       );
       setLabelTextByFor(
         'fileOutputExampleJs',
-        exampleJsFile && exampleJsFile.name ? exampleJsFile.name : '〇〇.example.js'
+        outputFileMap.exampleJs && outputFileMap.exampleJs.name ? outputFileMap.exampleJs.name : '〇〇.example.js'
       );
 
       setTextareaOrText(
         'fileOutputWasm',
-        wasmFile && typeof wasmFile.content === 'string'
-          ? wasmFile.content
+        outputFileMap.wasm && typeof outputFileMap.wasm.content === 'string'
+          ? outputFileMap.wasm.content
           : 'まだ生成されていません。'
       );
       setTextareaOrText(
         'fileOutputLoaderJs',
-        loaderJsFile && typeof loaderJsFile.content === 'string'
-          ? loaderJsFile.content
+        outputFileMap.loaderJs && typeof outputFileMap.loaderJs.content === 'string'
+          ? outputFileMap.loaderJs.content
           : 'まだ生成されていません。'
       );
       setTextareaOrText(
         'fileOutputExampleJs',
-        exampleJsFile && typeof exampleJsFile.content === 'string'
-          ? exampleJsFile.content
+        outputFileMap.exampleJs && typeof outputFileMap.exampleJs.content === 'string'
+          ? outputFileMap.exampleJs.content
           : 'まだ生成されていません。'
       );
       return;
@@ -181,24 +176,9 @@
     setLabelTextByFor('fileOutputLoaderJs', loaderJsFile ? loaderJsFile.name : '〇〇.loader.js');
     setLabelTextByFor('fileOutputExampleJs', exampleJsFile ? exampleJsFile.name : '〇〇.example.js');
 
-    setTextareaOrText(
-      'fileOutputWasm',
-      wasmFile && typeof wasmFile.content === 'string'
-        ? wasmFile.content
-        : 'まだ生成されていません。'
-    );
-    setTextareaOrText(
-      'fileOutputLoaderJs',
-      loaderJsFile && typeof loaderJsFile.content === 'string'
-        ? loaderJsFile.content
-        : 'まだ生成されていません。'
-    );
-    setTextareaOrText(
-      'fileOutputExampleJs',
-      exampleJsFile && typeof exampleJsFile.content === 'string'
-        ? exampleJsFile.content
-        : 'まだ生成されていません。'
-    );
+    setTextareaOrText('fileOutputWasm', wasmFile ? (wasmFile.content || '') : 'まだ生成されていません。');
+    setTextareaOrText('fileOutputLoaderJs', loaderJsFile ? (loaderJsFile.content || '') : 'まだ生成されていません。');
+    setTextareaOrText('fileOutputExampleJs', exampleJsFile ? (exampleJsFile.content || '') : 'まだ生成されていません。');
   }
 
   function readSubFileName() {
@@ -575,7 +555,7 @@
 
     if (goHome) {
       goHome.addEventListener('click', function () {
-        location.href = '../index.html';
+        location.href = './index.html';
       });
     }
 
