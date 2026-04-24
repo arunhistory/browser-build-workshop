@@ -113,13 +113,26 @@
     }
 
     .ts-log {
-      min-height: 220px;
+      height: 260px;
+      max-height: 260px;
+      overflow-y: auto;
+      overflow-x: auto;
       white-space: pre-wrap;
       word-break: break-word;
+      box-sizing: border-box;
     }
 
     .ts-output {
-      min-height: 240px;
+      height: 280px;
+      max-height: 280px;
+      min-height: 280px;
+      overflow-y: auto;
+      overflow-x: auto;
+      box-sizing: border-box;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      line-height: 1.55;
+      white-space: pre;
     }
   </style>
 </head>
@@ -337,17 +350,18 @@ export function exportedTest(value: User): string {
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/typescript@5.4.5/lib/typescript.js?v=4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/typescript@5.4.5/lib/typescript.js?v=5"></script>
 
-<script src="../assets/js/ts/core/ts-state.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-file-store.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-logger.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-compiler.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-minifier.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-obfuscator.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-output-manager.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-storage.js?v=4"></script>
-<script src="../assets/js/ts/core/ts-downloader.js?v=4"></script>
-<script src="../assets/js/ts/ts-build-engine.js?v=4"></script>
-<script src="../assets/js/ts/ts-build-page.js?v=4"></script>
+  <script src="../assets/js/ts/core/ts-state.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-file-store.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-logger.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-compiler.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-minifier.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-obfuscator.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-output-manager.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-storage.js?v=5"></script>
+  <script src="../assets/js/ts/core/ts-downloader.js?v=5"></script>
+  <script src="../assets/js/ts/ts-build-engine.js?v=5"></script>
+  <script src="../assets/js/ts/ts-build-page.js?v=5"></script>
+</body>
 </html>
