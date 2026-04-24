@@ -255,6 +255,20 @@
     ].join('\n');
   }
 
+  function makeExampleJs(config) {
+    const functionName = 'load' + pascalCase(config.projectName || 'rust-project');
+
+    return [
+      '// example usage',
+      "import { " + functionName + " } from './" + config.projectName + ".loader.js';",
+      '',
+      '(async function () {',
+      '  const mod = await ' + functionName + '();',
+      "  console.log('loaded module:', mod);",
+      '})();'
+    ].join('\n');
+  }
+
   function makeMockWasm(config) {
     return [
       '; mock wasm placeholder',
@@ -296,6 +310,12 @@
         type: 'application/javascript;charset=utf-8',
         content: makeLoaderJs(config, ok)
       });
+
+      files.push({
+        name: baseName + '.example.js',
+        type: 'application/javascript;charset=utf-8',
+        content: makeExampleJs(config)
+      });
     }
 
     return files;
@@ -327,6 +347,14 @@
       return file && file.name === 'Cargo.toml';
     });
 
+    const hasLoaderJs = files.some(function (file) {
+      return file && file.name === (config.projectName + '.loader.js');
+    });
+
+    const hasExampleJs = files.some(function (file) {
+      return file && file.name === (config.projectName + '.example.js');
+    });
+
     if (!hasBuildLog) {
       files.unshift({
         name: 'build-log.txt',
@@ -343,38 +371,54 @@
       });
     }
 
+    if ((config.outputMode === 'wasm-js' || config.outputMode === 'js-only') && !hasLoaderJs) {
+      files.push({
+        name: config.projectName + '.loader.js',
+        type: 'application/javascript;charset=utf-8',
+        content: makeLoaderJs(config, validation.errors.length === 0)
+      });
+    }
+
+    if ((config.outputMode === 'wasm-js' || config.outputMode === 'js-only') && !hasExampleJs) {
+      files.push({
+        name: config.projectName + '.example.js',
+        type: 'application/javascript;charset=utf-8',
+        content: makeExampleJs(config)
+      });
+    }
+
     return files;
   }
 
   function runCompiler(config, virtualFs) {
-  if (!global.RustRealCompiler || typeof global.RustRealCompiler.compile !== 'function') {
-    return {
-      ok: false,
-      mode: 'mock-fallback',
-      errors: [],
-      warnings: ['RustRealCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
-      outputFiles: []
-    };
-  }
+    if (!global.RustRealCompiler || typeof global.RustRealCompiler.compile !== 'function') {
+      return {
+        ok: false,
+        mode: 'mock-fallback',
+        errors: [],
+        warnings: ['RustRealCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
+        outputFiles: []
+      };
+    }
 
-  try {
-    return global.RustRealCompiler.compile(
-      Object.assign({}, clone(config), {
-        virtualFs: clone(virtualFs)
-      })
-    );
-  } catch (error) {
-    return {
-      ok: false,
-      mode: 'compiler-exception',
-      errors: [
-        '本番コンパイル処理で例外が発生しました: ' + safeString(error && error.message ? error.message : error)
-      ],
-      warnings: [],
-      outputFiles: []
-    };
+    try {
+      return global.RustRealCompiler.compile(
+        Object.assign({}, clone(config), {
+          virtualFs: clone(virtualFs)
+        })
+      );
+    } catch (error) {
+      return {
+        ok: false,
+        mode: 'compiler-exception',
+        errors: [
+          '本番コンパイル処理で例外が発生しました: ' + safeString(error && error.message ? error.message : error)
+        ],
+        warnings: [],
+        outputFiles: []
+      };
+    }
   }
-}
 
   function makeLogText(config, virtualFs, validation, compileMeta) {
     const lines = [];
@@ -513,6 +557,76 @@
     ].join('');
   }
 
+  function buildOutputFileMap(config, outputFiles) {
+    const map = {
+      buildLog: {
+        name: 'build-log.txt',
+        content: 'まだ生成されていません。'
+      },
+      cargoToml: {
+        name: 'Cargo.toml',
+        content: 'まだ生成されていません。'
+      },
+      wasm: {
+        name: config.projectName + '.wasm',
+        content: 'まだ生成されていません。'
+      },
+      loaderJs: {
+        name: config.projectName + '.loader.js',
+        content: 'まだ生成されていません。'
+      },
+      exampleJs: {
+        name: config.projectName + '.example.js',
+        content: 'まだ生成されていません。'
+      }
+    };
+
+    (Array.isArray(outputFiles) ? outputFiles : []).forEach(function (file) {
+      if (!file || !file.name) return;
+
+      if (file.name === 'build-log.txt') {
+        map.buildLog = {
+          name: file.name,
+          content: safeString(file.content, '')
+        };
+        return;
+      }
+
+      if (file.name === 'Cargo.toml') {
+        map.cargoToml = {
+          name: file.name,
+          content: safeString(file.content, '')
+        };
+        return;
+      }
+
+      if (file.name.endsWith('.wasm')) {
+        map.wasm = {
+          name: file.name,
+          content: safeString(file.content, '')
+        };
+        return;
+      }
+
+      if (file.name.endsWith('.loader.js')) {
+        map.loaderJs = {
+          name: file.name,
+          content: safeString(file.content, '')
+        };
+        return;
+      }
+
+      if (file.name.endsWith('.example.js')) {
+        map.exampleJs = {
+          name: file.name,
+          content: safeString(file.content, '')
+        };
+      }
+    });
+
+    return map;
+  }
+
   function runBuild(input) {
     const config = collectConfig(input);
     const validation = validateConfig(config);
@@ -538,6 +652,7 @@
 
     const outputText = makeReadableOutput(config, virtualFs, validation, outputFiles, compileMeta);
     const summaryHtml = buildSummaryHtml(config, validation, outputFiles, virtualFs, compileMeta);
+    const outputFileMap = buildOutputFileMap(config, outputFiles);
 
     return {
       ok: validation.errors.length === 0,
@@ -549,6 +664,7 @@
       errors: clone(validation.errors),
       warnings: clone(validation.warnings),
       outputFiles: clone(outputFiles),
+      outputFileMap: clone(outputFileMap),
       logText: logText,
       outputText: outputText,
       summaryHtml: summaryHtml,
@@ -560,6 +676,7 @@
     collectConfig: collectConfig,
     validateConfig: validateConfig,
     runBuild: runBuild,
-    runCompiler: runCompiler
+    runCompiler: runCompiler,
+    buildOutputFileMap: buildOutputFileMap
   };
 })(window);
