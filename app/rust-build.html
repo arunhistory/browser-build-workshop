@@ -196,39 +196,59 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="field">
-  <label>分解表示</label>
-  <div id="buildOutputFiles" class="build-output-files">
-    <div class="file-output-item">
-      <label id="fileOutputWasmLabel" for="fileOutputWasm">まだ生成されていません (.wasm)</label>
-      <textarea
-        id="fileOutputWasm"
-        class="output-box file-output-box"
-        spellcheck="false"
-        readonly
-      >まだ生成されていません。</textarea>
-    </div>
+          <label>分解表示</label>
+          <div id="buildOutputFiles" class="build-output-files">
+            <div class="file-output-item">
+              <label for="outputFileBuildLog">build-log.txt</label>
+              <textarea
+                id="outputFileBuildLog"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              ></textarea>
+            </div>
 
-    <div class="file-output-item">
-      <label id="fileOutputLoaderJsLabel" for="fileOutputLoaderJs">まだ生成されていません (.loader.js)</label>
-      <textarea
-        id="fileOutputLoaderJs"
-        class="output-box file-output-box"
-        spellcheck="false"
-        readonly
-      >まだ生成されていません。</textarea>
-    </div>
+            <div class="file-output-item">
+              <label for="outputFileBundle">bundle / outputText</label>
+              <textarea
+                id="outputFileBundle"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              ></textarea>
+            </div>
 
-    <div class="file-output-item">
-      <label id="fileOutputExampleJsLabel" for="fileOutputExampleJs">まだ生成されていません (.example.js)</label>
-      <textarea
-        id="fileOutputExampleJs"
-        class="output-box file-output-box"
-        spellcheck="false"
-        readonly
-      >まだ生成されていません。</textarea>
-    </div>
-  </div>
-</div>
+            <div class="file-output-item">
+              <label for="outputFileWasm">.wasm</label>
+              <textarea
+                id="outputFileWasm"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              ></textarea>
+            </div>
+
+            <div class="file-output-item">
+              <label for="outputFileLoaderJs">.loader.js</label>
+              <textarea
+                id="outputFileLoaderJs"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              ></textarea>
+            </div>
+
+            <div class="file-output-item">
+              <label for="outputFileExampleJs">.example.js</label>
+              <textarea
+                id="outputFileExampleJs"
+                class="output-box file-output-box"
+                spellcheck="false"
+                readonly
+              ></textarea>
+            </div>
+          </div>
+        </div>
 
         <div class="field">
           <label>ビルド要約</label>
