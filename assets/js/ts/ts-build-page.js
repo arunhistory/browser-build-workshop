@@ -1,206 +1,366 @@
 (function () {
   "use strict";
 
-  var subFiles = [];
-  var lastOutput = "";
+  const requiredModules = [
+    "TSBuildEngine",
+    "TSBuildState",
+    "TSFileStore",
+    "TSLogger",
+    "TSOutputManager"
+  ];
 
-  function getElement(id) {
-    return document.getElementById(id);
-  }
-
-  function getValue(id) {
-    var element = getElement(id);
-    return element ? element.value : "";
-  }
-
-  function setValue(id, value) {
-    var element = getElement(id);
-    if (element) {
-      element.value = value;
+  for (const moduleName of requiredModules) {
+    if (!window[moduleName]) {
+      throw new Error(`${moduleName} is required before ts-build-page.js`);
     }
   }
 
-  function isChecked(id) {
-    var element = getElement(id);
-    return !!(element && element.checked);
-  }
+  const Engine = window.TSBuildEngine;
+  const State = window.TSBuildState;
+  const Logger = window.TSLogger;
+  const OutputManager = window.TSOutputManager;
 
-  function renderSubFiles() {
-    if (!window.BBWFileList) {
-      return;
-    }
+  const els = {};
 
-    window.BBWFileList.renderFileList(
-      getElement("subFilesList"),
-      subFiles,
-      "補助ファイルはまだ追加されていません"
-    );
-  }
+  document.addEventListener("DOMContentLoaded", function () {
+    collectElements();
+    bindEvents();
+    Engine.boot();
+    syncPageFromState();
+    renderAll();
+  });
 
-  function collectInput() {
-    return {
-      projectName: getValue("projectName"),
-      entryFileName: getValue("entryFileName"),
-      outputFileName: getValue("outputFileName"),
-      moduleType: getValue("moduleType"),
-      targetType: getValue("targetType"),
-      mainCode: getValue("mainTsCode"),
-      subFiles: subFiles.slice(),
-      enableMinify: isChecked("enableMinify"),
-      enableObfuscation: isChecked("enableObfuscation"),
-      enableSourceMap: isChecked("enableSourceMap")
-    };
-  }
+  function collectElements() {
+    els.goHome = document.getElementById("goHome");
+    els.goRustPage = document.getElementById("goRustPage");
 
-  function addSubFile() {
-    var fileName = getValue("subFileName").trim();
-    var fileCode = getValue("subFileCode");
+    els.fileName = document.getElementById("fileName");
+    els.addFile = document.getElementById("addFile");
+    els.deleteFile = document.getElementById("deleteFile");
+    els.saveDraft = document.getElementById("saveDraft");
+    els.loadDraft = document.getElementById("loadDraft");
+    els.fileList = document.getElementById("fileList");
 
-    if (!fileName || !fileCode.trim()) {
-      if (window.BBWStatus) {
-        window.BBWStatus.setStatus(getElement("buildStatus"), "補助ファイル名とコードを入力してください");
-        window.BBWStatus.setLog(getElement("buildLog"), "補助ファイルの追加に失敗しました。入力不足です。");
-      }
-      return;
-    }
+    els.tsInput = document.getElementById("tsInput");
 
-    subFiles.push({
-      name: fileName,
-      code: fileCode
-    });
+    els.outputName = document.getElementById("outputName");
+    els.targetMode = document.getElementById("targetMode");
+    els.enableMinify = document.getElementById("enableMinify");
+    els.enableObfuscate = document.getElementById("enableObfuscate");
+    els.keepComments = document.getElementById("keepComments");
+    els.strictMode = document.getElementById("strictMode");
 
-    setValue("subFileName", "");
-    setValue("subFileCode", "");
-    renderSubFiles();
+    els.runBuild = document.getElementById("runBuild");
+    els.clearLog = document.getElementById("clearLog");
 
-    if (window.BBWStatus) {
-      window.BBWStatus.setStatus(getElement("buildStatus"), "補助ファイルを追加しました");
-      window.BBWStatus.setLog(getElement("buildLog"), "補助ファイルを追加しました: " + fileName);
-    }
-  }
+    els.logOutput = document.getElementById("logOutput");
+    els.jsOutput = document.getElementById("jsOutput");
 
-  function runBuild() {
-    if (!window.BBWTsBuildEngine) {
-      if (window.BBWStatus) {
-        window.BBWStatus.setStatus(getElement("buildStatus"), "TS build engine が読み込まれていません");
-        window.BBWStatus.setLog(getElement("buildLog"), "BBWTsBuildEngine が未定義です。");
-      }
-      return;
-    }
-
-    var result = window.BBWTsBuildEngine.buildTsOutput(collectInput());
-    lastOutput = result.content || "";
-
-    if (window.BBWStatus) {
-      window.BBWStatus.setStatus(getElement("buildStatus"), result.success ? "変換完了" : "変換失敗");
-      window.BBWStatus.setLog(getElement("buildLog"), result.logs || "");
-      window.BBWStatus.setOutput(getElement("buildOutput"), lastOutput || "出力はありません。");
-    }
-  }
-
-  function clearAll() {
-    subFiles = [];
-    lastOutput = "";
-
-    setValue("projectName", "sample-ts-project");
-    setValue("entryFileName", "main.ts");
-    setValue("outputFileName", "index.js");
-    setValue("mainTsCode", 'const message: string = "browser-build-workshop";\nconst version: number = 1;\n\nfunction boot(name: string): string {\n  return `hello ${name}`;\n}\n\nconsole.log(message, version);\nconsole.log(boot("TypeScript"));\n');
-    setValue("subFileName", "");
-    setValue("subFileCode", "");
-
-    var enableMinify = getElement("enableMinify");
-    var enableObfuscation = getElement("enableObfuscation");
-    var enableSourceMap = getElement("enableSourceMap");
-
-    if (enableMinify) enableMinify.checked = false;
-    if (enableObfuscation) enableObfuscation.checked = false;
-    if (enableSourceMap) enableSourceMap.checked = false;
-
-    var moduleType = getElement("moduleType");
-    var targetType = getElement("targetType");
-
-    if (moduleType) moduleType.value = "esnext";
-    if (targetType) targetType.value = "es2020";
-
-    renderSubFiles();
-
-    if (window.BBWStatus) {
-      window.BBWStatus.setStatus(getElement("buildStatus"), "初期化しました");
-      window.BBWStatus.setLog(getElement("buildLog"), "入力内容を初期化しました。");
-      window.BBWStatus.setOutput(getElement("buildOutput"), "まだ出力はありません。");
-    }
-  }
-
-  function downloadOutput() {
-    var fileName = getValue("outputFileName").trim() || "index.js";
-
-    if (!window.BBWDownload || !lastOutput) {
-      if (window.BBWStatus) {
-        window.BBWStatus.setStatus(getElement("buildStatus"), "保存できません");
-        window.BBWStatus.setLog(getElement("buildLog"), "保存対象の出力がありません。");
-      }
-      return;
-    }
-
-    window.BBWDownload.downloadTextFile(lastOutput, fileName, "text/javascript;charset=utf-8");
-
-    if (window.BBWStatus) {
-      window.BBWStatus.setStatus(getElement("buildStatus"), "出力を保存しました");
-      window.BBWStatus.setLog(getElement("buildLog"), "出力ファイルを保存しました: " + fileName);
-    }
-  }
-
-  function copyOutput() {
-    if (!window.BBWClipboard || !lastOutput) {
-      if (window.BBWStatus) {
-        window.BBWStatus.setStatus(getElement("buildStatus"), "コピーできません");
-        window.BBWStatus.setLog(getElement("buildLog"), "コピー対象の出力がありません。");
-      }
-      return;
-    }
-
-    window.BBWClipboard.copyText(lastOutput)
-      .then(function () {
-        if (window.BBWStatus) {
-          window.BBWStatus.setStatus(getElement("buildStatus"), "出力をコピーしました");
-          window.BBWStatus.setLog(getElement("buildLog"), "出力内容をクリップボードへコピーしました。");
-        }
-      })
-      .catch(function (error) {
-        if (window.BBWStatus) {
-          window.BBWStatus.setStatus(getElement("buildStatus"), "コピーに失敗しました");
-          window.BBWStatus.setLog(
-            getElement("buildLog"),
-            "コピーに失敗しました: " + (error && error.message ? error.message : "unknown_error")
-          );
-        }
-      });
+    els.downloadJs = document.getElementById("downloadJs");
+    els.downloadLog = document.getElementById("downloadLog");
+    els.downloadAll = document.getElementById("downloadAll");
   }
 
   function bindEvents() {
-    if (window.BBWNavigation) {
-      window.BBWNavigation.bindMove("goHome", "./index.html");
-      window.BBWNavigation.bindMove("goRustPage", "./rust-build.html");
+    if (els.goHome) {
+      els.goHome.addEventListener("click", function () {
+        location.href = "./index.html";
+      });
     }
 
-    var addSubFileButton = getElement("addSubFileButton");
-    var runBuildButton = getElement("runBuildButton");
-    var clearAllButton = getElement("clearAllButton");
-    var downloadOutputButton = getElement("downloadOutputButton");
-    var copyOutputButton = getElement("copyOutputButton");
+    if (els.goRustPage) {
+      els.goRustPage.addEventListener("click", function () {
+        location.href = "./rust-build.html";
+      });
+    }
 
-    if (addSubFileButton) addSubFileButton.addEventListener("click", addSubFile);
-    if (runBuildButton) runBuildButton.addEventListener("click", runBuild);
-    if (clearAllButton) clearAllButton.addEventListener("click", clearAll);
-    if (downloadOutputButton) downloadOutputButton.addEventListener("click", downloadOutput);
-    if (copyOutputButton) copyOutputButton.addEventListener("click", copyOutput);
+    if (els.fileName) {
+      els.fileName.addEventListener("change", function () {
+        runSafe(function () {
+          Engine.renameActiveFile(els.fileName.value);
+          renderAll();
+        });
+      });
+    }
+
+    if (els.addFile) {
+      els.addFile.addEventListener("click", function () {
+        runSafe(function () {
+          const name = prompt("追加するTSファイル名", "module.ts");
+
+          if (name === null) return;
+
+          Engine.updateActiveFileCode(getInputCode());
+          Engine.addFile(name, "");
+          syncPageFromState();
+          renderAll();
+        });
+      });
+    }
+
+    if (els.deleteFile) {
+      els.deleteFile.addEventListener("click", function () {
+        runSafe(function () {
+          const active = Engine.getActiveFile();
+
+          if (!active) return;
+
+          const ok = confirm(`${active.name} を削除しますか？`);
+
+          if (!ok) return;
+
+          Engine.removeActiveFile();
+          syncPageFromState();
+          renderAll();
+        });
+      });
+    }
+
+    if (els.saveDraft) {
+      els.saveDraft.addEventListener("click", function () {
+        runSafe(function () {
+          syncStateFromPage();
+          Engine.saveDraft();
+          renderLog();
+        });
+      });
+    }
+
+    if (els.loadDraft) {
+      els.loadDraft.addEventListener("click", function () {
+        runSafe(function () {
+          Engine.loadDraft();
+          syncPageFromState();
+          renderAll();
+        });
+      });
+    }
+
+    if (els.tsInput) {
+      els.tsInput.addEventListener("input", function () {
+        runSafe(function () {
+          Engine.updateActiveFileCode(getInputCode());
+        }, false);
+      });
+    }
+
+    const settingElements = [
+      els.outputName,
+      els.targetMode,
+      els.enableMinify,
+      els.enableObfuscate,
+      els.keepComments,
+      els.strictMode
+    ];
+
+    for (const item of settingElements) {
+      if (!item) continue;
+
+      item.addEventListener("change", function () {
+        runSafe(function () {
+          updateSettingsFromPage();
+        }, false);
+      });
+    }
+
+    if (els.runBuild) {
+      els.runBuild.addEventListener("click", function () {
+        runSafe(function () {
+          syncStateFromPage();
+          setRunningUI(true);
+
+          const result = Engine.build();
+
+          renderLog();
+          renderOutput();
+
+          if (!result.ok) {
+            alert(result.error.message);
+          }
+        });
+      });
+    }
+
+    if (els.clearLog) {
+      els.clearLog.addEventListener("click", function () {
+        runSafe(function () {
+          Engine.clearLogs();
+          renderLog();
+        });
+      });
+    }
+
+    if (els.downloadJs) {
+      els.downloadJs.addEventListener("click", function () {
+        runSafe(function () {
+          Engine.downloadPrimaryOutput();
+        });
+      });
+    }
+
+    if (els.downloadLog) {
+      els.downloadLog.addEventListener("click", function () {
+        runSafe(function () {
+          Engine.downloadBuildLog();
+        });
+      });
+    }
+
+    if (els.downloadAll) {
+      els.downloadAll.addEventListener("click", function () {
+        runSafe(function () {
+          Engine.downloadAllAsTextBundle();
+        });
+      });
+    }
   }
 
-  function init() {
-    renderSubFiles();
-    bindEvents();
+  function syncStateFromPage() {
+    const active = Engine.getActiveFile();
+
+    if (active) {
+      Engine.updateActiveFileCode(getInputCode());
+
+      if (els.fileName) {
+        Engine.renameActiveFile(els.fileName.value);
+      }
+    }
+
+    updateSettingsFromPage();
   }
 
-  init();
+  function syncPageFromState() {
+    const active = Engine.getActiveFile();
+    const settings = Engine.getSettings();
+
+    if (active) {
+      if (els.fileName) els.fileName.value = active.name;
+      if (els.tsInput) els.tsInput.value = active.code || "";
+    }
+
+    if (els.outputName) els.outputName.value = settings.outputName || "main.js";
+    if (els.targetMode) els.targetMode.value = settings.targetMode || "browser";
+    if (els.enableMinify) els.enableMinify.checked = Boolean(settings.enableMinify);
+    if (els.enableObfuscate) els.enableObfuscate.checked = Boolean(settings.enableObfuscate);
+    if (els.keepComments) els.keepComments.checked = Boolean(settings.keepComments);
+    if (els.strictMode) els.strictMode.checked = Boolean(settings.strictMode);
+  }
+
+  function updateSettingsFromPage() {
+    Engine.updateSettings({
+      outputName: els.outputName ? els.outputName.value : "main.js",
+      targetMode: els.targetMode ? els.targetMode.value : "browser",
+      enableMinify: els.enableMinify ? els.enableMinify.checked : false,
+      enableObfuscate: els.enableObfuscate ? els.enableObfuscate.checked : false,
+      keepComments: els.keepComments ? els.keepComments.checked : true,
+      strictMode: els.strictMode ? els.strictMode.checked : true
+    });
+  }
+
+  function renderAll() {
+    renderFileList();
+    renderLog();
+    renderOutput();
+    setRunningUI(false);
+  }
+
+  function renderFileList() {
+    if (!els.fileList) return;
+
+    const files = Engine.getFiles();
+    const active = Engine.getActiveFile();
+
+    els.fileList.innerHTML = "";
+
+    for (const file of files) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "file-item";
+
+      if (active && active.id === file.id) {
+        button.className += " active";
+      }
+
+      button.textContent = file.name;
+
+      button.addEventListener("click", function () {
+        runSafe(function () {
+          Engine.updateActiveFileCode(getInputCode());
+          Engine.selectFile(file.id);
+          syncPageFromState();
+          renderAll();
+        });
+      });
+
+      els.fileList.appendChild(button);
+    }
+  }
+
+  function renderLog() {
+    if (!els.logOutput) return;
+
+    els.logOutput.textContent = Engine.getLogText();
+  }
+
+  function renderOutput() {
+    if (!els.jsOutput) return;
+
+    const primary = Engine.getPrimaryOutput();
+
+    if (!primary) {
+      els.jsOutput.value = "";
+      return;
+    }
+
+    els.jsOutput.value = primary.code || "";
+  }
+
+  function getInputCode() {
+    return els.tsInput ? els.tsInput.value : "";
+  }
+
+  function setRunningUI(forceValue) {
+    const running = typeof forceValue === "boolean"
+      ? forceValue
+      : State.isRunning();
+
+    const buttons = [
+      els.addFile,
+      els.deleteFile,
+      els.saveDraft,
+      els.loadDraft,
+      els.runBuild,
+      els.downloadJs,
+      els.downloadLog,
+      els.downloadAll
+    ];
+
+    for (const button of buttons) {
+      if (!button) continue;
+      button.disabled = running;
+    }
+
+    if (els.runBuild) {
+      els.runBuild.textContent = running ? "変換中..." : "変換実行";
+    }
+  }
+
+  function runSafe(fn, renderOnError) {
+    try {
+      return fn();
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+
+      Logger.error(message);
+      renderLog();
+
+      if (renderOnError !== false) {
+        alert(message);
+      }
+
+      return null;
+    } finally {
+      setRunningUI(false);
+    }
+  }
 })();
