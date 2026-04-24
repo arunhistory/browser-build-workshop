@@ -12,6 +12,116 @@
     content="TypeScript を JavaScript へ変換するためのビルド作業ページ"
   />
   <link rel="stylesheet" href="../assets/css/common.css" />
+
+  <style>
+    .ts-panel {
+      margin-top: 18px;
+    }
+
+    .ts-field {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .ts-field label {
+      font-weight: 800;
+      font-size: 1.02rem;
+      color: var(--text-main, #f4f7ff);
+    }
+
+    .ts-field input,
+    .ts-field select,
+    .ts-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 18px;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      background: rgba(3, 7, 18, 0.82);
+      color: #f8fafc;
+      padding: 14px 16px;
+      font-size: 1rem;
+      outline: none;
+    }
+
+    .ts-field input:focus,
+    .ts-field select:focus,
+    .ts-field textarea:focus {
+      border-color: rgba(56, 189, 248, 0.75);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18);
+    }
+
+    .ts-field textarea {
+      min-height: 260px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      line-height: 1.55;
+      white-space: pre;
+      overflow: auto;
+    }
+
+    .ts-checks {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .ts-check {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      color: var(--text-main, #f4f7ff);
+    }
+
+    .ts-check input {
+      width: 24px;
+      height: 24px;
+      accent-color: #22c55e;
+    }
+
+    .ts-button-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .ts-file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .ts-file-list .file-item {
+      width: 100%;
+      border: 1px solid rgba(148, 163, 184, 0.35);
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.88);
+      color: #f8fafc;
+      padding: 12px 14px;
+      font-weight: 800;
+      text-align: left;
+    }
+
+    .ts-file-list .file-item.active {
+      border-color: rgba(34, 197, 94, 0.8);
+      background: rgba(34, 197, 94, 0.18);
+    }
+
+    .ts-log {
+      min-height: 220px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .ts-output {
+      min-height: 240px;
+    }
+  </style>
 </head>
 
 <body>
@@ -24,29 +134,47 @@
 
       <div class="title-box">
         <h1>TS Build</h1>
-        <p>TypeScript を JavaScript へ変換するためのビルド作業ページ</p>
+        <p>
+          TypeScript を JavaScript へ変換するためのビルド作業ページ。
+          単一入力だけでなく、補助ファイル・出力名・出力内容確認まで含めた土台として扱う。
+        </p>
       </div>
     </section>
 
-    <section class="panel">
-      <h2>プロジェクト設定</h2>
+    <section class="panel ts-panel">
+      <h2>入力と設定</h2>
 
-      <div class="form-row">
+      <div class="ts-field">
         <label for="projectName">プロジェクト名</label>
-        <input id="projectName" type="text" value="sample-ts-project" />
+        <input
+          id="projectName"
+          type="text"
+          value="sample-ts-project"
+          autocomplete="off"
+        />
       </div>
 
-      <div class="form-row">
+      <div class="ts-field">
         <label for="fileName">エントリーファイル名</label>
-        <input id="fileName" type="text" value="main.ts" />
+        <input
+          id="fileName"
+          type="text"
+          value="main.ts"
+          autocomplete="off"
+        />
       </div>
 
-      <div class="form-row">
+      <div class="ts-field">
         <label for="outputName">出力ファイル名</label>
-        <input id="outputName" type="text" value="index.js" />
+        <input
+          id="outputName"
+          type="text"
+          value="index.js"
+          autocomplete="off"
+        />
       </div>
 
-      <div class="form-row">
+      <div class="ts-field">
         <label for="moduleMode">module</label>
         <select id="moduleMode">
           <option value="esnext" selected>esnext</option>
@@ -55,37 +183,22 @@
         </select>
       </div>
 
-      <div class="form-row">
+      <div class="ts-field">
         <label for="targetMode">target</label>
         <select id="targetMode">
-          <option value="browser" selected>browser</option>
+          <option value="es2020" selected>es2020</option>
+          <option value="es2019">es2019</option>
+          <option value="es2018">es2018</option>
+          <option value="es2015">es2015</option>
+          <option value="browser">browser</option>
           <option value="module">module</option>
           <option value="node">node</option>
         </select>
       </div>
-    </section>
 
-    <section class="panel">
-      <h2>ファイル管理</h2>
-
-      <div class="button-row">
-        <button class="btn btn-secondary" id="addFile" type="button">ファイル追加</button>
-        <button class="btn btn-muted" id="deleteFile" type="button">現在のファイル削除</button>
-        <button class="btn btn-muted" id="saveDraft" type="button">下書き保存</button>
-        <button class="btn btn-muted" id="loadDraft" type="button">下書き読込</button>
-      </div>
-
-      <div id="fileList" class="file-list"></div>
-    </section>
-
-    <section class="panel">
-      <h2>メインTypeScriptコード</h2>
-
-      <textarea
-        id="tsInput"
-        class="code-area"
-        spellcheck="false"
-      >import type { ExternalUser } from "./types";
+      <div class="ts-field">
+        <label for="tsInput">メインTypeScriptコード</label>
+        <textarea id="tsInput" spellcheck="false">import type { ExternalUser } from "./types";
 import { helper } from "./helper";
 
 type User = {
@@ -150,56 +263,73 @@ console.log(account.show());
 export function exportedTest(value: User): string {
   return value.name as string;
 }</textarea>
+      </div>
     </section>
 
-    <section class="panel">
+    <section class="panel ts-panel">
+      <h2>ファイル管理</h2>
+
+      <div class="ts-button-stack">
+        <button class="btn btn-secondary" id="addFile" type="button">ファイル追加</button>
+        <button class="btn btn-muted" id="deleteFile" type="button">現在のファイル削除</button>
+        <button class="btn btn-muted" id="saveDraft" type="button">下書き保存</button>
+        <button class="btn btn-muted" id="loadDraft" type="button">下書き読込</button>
+      </div>
+
+      <div id="fileList" class="ts-file-list"></div>
+    </section>
+
+    <section class="panel ts-panel">
       <h2>変換オプション</h2>
 
-      <div class="checkboxes">
-        <label class="checkbox">
+      <div class="ts-checks">
+        <label class="ts-check">
           <input id="enableMinify" type="checkbox" />
           圧縮を有効にする
         </label>
 
-        <label class="checkbox">
+        <label class="ts-check">
           <input id="enableObfuscate" type="checkbox" />
           難読化を有効にする
         </label>
 
-        <label class="checkbox">
+        <label class="ts-check">
           <input id="keepComments" type="checkbox" checked />
           コメントを残す
         </label>
 
-        <label class="checkbox">
+        <label class="ts-check">
           <input id="strictMode" type="checkbox" checked />
           "use strict" を付ける
         </label>
       </div>
 
-      <div class="button-row">
+      <div class="ts-button-stack">
         <button class="btn btn-primary" id="runBuild" type="button">変換実行</button>
         <button class="btn btn-muted" id="clearLog" type="button">ログ削除</button>
       </div>
     </section>
 
-    <section class="panel">
+    <section class="panel ts-panel">
       <h2>ログ</h2>
-      <pre id="logOutput" class="log-box">待機中...</pre>
+      <pre id="logOutput" class="log-box ts-log">待機中...</pre>
     </section>
 
-    <section class="panel">
+    <section class="panel ts-panel">
       <h2>JavaScript出力</h2>
 
-      <textarea
-        id="jsOutput"
-        class="code-area"
-        spellcheck="false"
-        readonly
-        placeholder="変換後の JavaScript がここに表示されます"
-      ></textarea>
+      <div class="ts-field">
+        <label for="jsOutput">出力内容</label>
+        <textarea
+          id="jsOutput"
+          class="ts-output"
+          spellcheck="false"
+          readonly
+          placeholder="変換後の JavaScript がここに表示されます"
+        ></textarea>
+      </div>
 
-      <div class="button-row">
+      <div class="ts-button-stack">
         <button class="btn btn-secondary" id="downloadJs" type="button">JS保存</button>
         <button class="btn btn-secondary" id="downloadLog" type="button">ログ保存</button>
         <button class="btn btn-secondary" id="downloadAll" type="button">まとめて保存</button>
