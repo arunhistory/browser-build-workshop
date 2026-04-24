@@ -88,6 +88,60 @@
     outputEl.textContent = text || '';
   }
 
+  function setTextareaOrText(id, value) {
+    const el = getEl(id);
+    if (!el) return;
+
+    if ('value' in el) {
+      el.value = value || '';
+      return;
+    }
+
+    el.textContent = value || '';
+  }
+
+  function clearSeparatedOutputs() {
+    setTextareaOrText('outputFileBuildLog', '');
+    setTextareaOrText('outputFileBundle', '');
+    setTextareaOrText('outputFileWasm', '');
+    setTextareaOrText('outputFileLoaderJs', '');
+    setTextareaOrText('outputFileExampleJs', '');
+  }
+
+  function findOutputFileByName(outputFiles, exactName) {
+    if (!Array.isArray(outputFiles)) return null;
+    for (const file of outputFiles) {
+      if (file && file.name === exactName) {
+        return file;
+      }
+    }
+    return null;
+  }
+
+  function findOutputFileByExt(outputFiles, ext) {
+    if (!Array.isArray(outputFiles)) return null;
+    for (const file of outputFiles) {
+      if (file && typeof file.name === 'string' && file.name.endsWith(ext)) {
+        return file;
+      }
+    }
+    return null;
+  }
+
+  function splitOutputFiles(result) {
+    const outputFiles = Array.isArray(result && result.outputFiles) ? result.outputFiles : [];
+    const logFile = findOutputFileByName(outputFiles, 'build-log.txt');
+    const wasmFile = findOutputFileByExt(outputFiles, '.wasm');
+    const loaderJsFile = findOutputFileByExt(outputFiles, '.loader.js');
+    const exampleJsFile = findOutputFileByExt(outputFiles, '.example.js');
+
+    setTextareaOrText('outputFileBuildLog', logFile ? (logFile.content || '') : '');
+    setTextareaOrText('outputFileBundle', result && result.outputText ? result.outputText : '');
+    setTextareaOrText('outputFileWasm', wasmFile ? (wasmFile.content || '') : '');
+    setTextareaOrText('outputFileLoaderJs', loaderJsFile ? (loaderJsFile.content || '') : '');
+    setTextareaOrText('outputFileExampleJs', exampleJsFile ? (exampleJsFile.content || '') : '');
+  }
+
   function readSubFileName() {
     return safeValue('subFileName', '').trim();
   }
@@ -248,6 +302,7 @@
     if (!runner) {
       showStatus('Rustビルド本体が見つかりません');
       showLog('RustBuildController.runBuild または RustBuildEngine.runBuild が未定義です。');
+      clearSeparatedOutputs();
       return;
     }
 
@@ -256,6 +311,7 @@
     showStatus('ビルド中...');
     showLog('Rustビルドを開始します...');
     showOutput('');
+    clearSeparatedOutputs();
     setHtml('buildSummary', '');
 
     try {
@@ -266,6 +322,7 @@
 
       showLog(result.logText || '');
       showOutput(result.outputText || '');
+      splitOutputFiles(result);
       setHtml('buildSummary', result.summaryHtml || '');
 
       if (result.ok) {
@@ -278,6 +335,7 @@
       showStatus('ビルド中に例外が発生しました');
       showLog(String(error && error.stack ? error.stack : error));
       showOutput('');
+      clearSeparatedOutputs();
       setHtml('buildSummary', '');
     } finally {
       state.isRunning = false;
@@ -327,6 +385,7 @@
 
     showLog('');
     showOutput('');
+    clearSeparatedOutputs();
     setHtml('buildSummary', '');
     renderSubFiles();
     showStatus('初期化しました');
@@ -487,6 +546,21 @@
     if (!getEl('downloadLogButton')) {
       console.warn('downloadLogButton が見つかりません');
     }
+    if (!getEl('outputFileBuildLog')) {
+      console.warn('outputFileBuildLog フィールドが見つかりません');
+    }
+    if (!getEl('outputFileBundle')) {
+      console.warn('outputFileBundle フィールドが見つかりません');
+    }
+    if (!getEl('outputFileWasm')) {
+      console.warn('outputFileWasm フィールドが見つかりません');
+    }
+    if (!getEl('outputFileLoaderJs')) {
+      console.warn('outputFileLoaderJs フィールドが見つかりません');
+    }
+    if (!getEl('outputFileExampleJs')) {
+      console.warn('outputFileExampleJs フィールドが見つかりません');
+    }
   }
 
   function init() {
@@ -495,6 +569,7 @@
     bindSubFileActions();
     bindNavigation();
     renderSubFiles();
+    clearSeparatedOutputs();
     showStatus('準備完了');
   }
 
