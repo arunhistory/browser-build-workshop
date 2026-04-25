@@ -3,205 +3,362 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const ROOT_DIR = process.cwd();
-const REQUEST_PATH = path.join(ROOT_DIR, "build-requests", "current", "build-request.json");
 const GENERATED_DIR = path.join(ROOT_DIR, ".generated");
 const PROJECT_DIR = path.join(GENERATED_DIR, "rust-project");
+const SRC_DIR = path.join(PROJECT_DIR, "src");
 const DIST_DIR = path.join(GENERATED_DIR, "dist");
 
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"));
+function safeString(value, fallback = "") {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return fallback;
+  return String(value);
 }
 
-function writeFileSafe(filePath, content) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, content, "utf8");
+function normalizeLineBreaks(text) {
+  return safeString(text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
-function copyFileSafe(from, to) {
-  fs.mkdirSync(path.dirname(to), { recursive: true });
-  fs.copyFileSync(from, to);
+function trimOrEmpty(text) {
+  return normalizeLineBreaks(text).trim();
+}
+
+function ensureDir(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+function writeText(filePath, content) {
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, normalizeLineBreaks(content), "utf8");
+}
+
+function readJsonFromEnv() {
+  const raw = process.env.BUILD_REQUEST_JSON;
+
+  if (!raw || !raw.trim()) {
+    throw new Error("BUILD_REQUEST_JSON が未設定です。GitHub Actions の手動実行入力に buildRequestJson を入れてください。");
+  }
+
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    throw new Error("BUILD_REQUEST_JSON の JSON 解析に失敗しました。\n" + String(error && error.message ? error.message : error));
+  }
+}
+
+function unwrapRequest(rawRequest) {
+  if (!rawRequest || typeof rawRequest !== "object") {
+    throw new Error("buildRequestJson は JSON オブジェクトである必要があります。");
+  }
+
+  if (rawRequest.build && typeof rawRequest.build === "object") {
+    return rawRequest.build;
+  }
+
+  return rawRequest;
 }
 
 function normalizeProjectName(name) {
-  return String(name || "sample-rust-project")
-    .trim()
+  const value = trimOrEmpty(name || "sample-rust-project") || "sample-rust-project";
+
+  const normalized = value
     .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "sample-rust-project";
+    .replace(/_/g, "-")
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+
+  return normalized || "sample-rust-project";
 }
 
-function crateFileStem(projectName) {
+function rustCrateOutputName(projectName) {
   return normalizeProjectName(projectName).replace(/-/g, "_");
 }
 
-function assertRequestExists() {
-  if (!fs.existsSync(REQUEST_PATH)) {
-    throw new Error(
-      [
-        "build-request.json が見つかりません。",
-        "配置先:",
-        REQUEST_PATH,
-        "",
-        "ブラウザ側で生成した build-request.json を",
-        "build-requests/current/build-request.json に置いてください。"
-      ].join("\n")
-    );
-  }
+function normalizeEdition(edition) {
+  const value = trimOrEmpty(edition || "2021");
+  if (["2015", "2018", "2021", "2024"].includes(value)) return value;
+  return "2021";
 }
 
-function loadRequest() {
-  assertRequestExists();
+function normalizeBuildMode(mode) {
+  const value = trimOrEmpty(mode || "release").toLowerCase();
+  if (value === "debug") return "debug";
+  return "release";
+}
 
-  const request = readJson(REQUEST_PATH);
+function normalizeEntryPoint(entryPoint) {
+  const value = trimOrEmpty(entryPoint || "src/lib.rs") || "src/lib.rs";
 
-  if (!request || typeof request !== "object") {
-    throw new Error("build-request.json の形式が不正です。");
+  if (value.startsWith("/")) {
+    return value.slice(1);
   }
 
-  if (!request.build || typeof request.build !== "object") {
-    throw new Error("build-request.json に build がありません。");
+  if (value === "lib.rs") return "src/lib.rs";
+  if (value === "main.rs") return "src/main.rs";
+
+  return value;
+}
+
+function inferEntryTarget(entryPoint) {
+  const value = normalizeEntryPoint(entryPoint).toLowerCase();
+  if (value.endsWith("main.rs")) return "main";
+  return "lib";
+}
+
+function normalizeCrateType(crateType, entryTarget) {
+  const value = trimOrEmpty(crateType || "cdylib").toLowerCase();
+
+  if (entryTarget === "main") {
+    return "bin";
   }
 
-  if (!request.virtualFs || typeof request.virtualFs !== "object") {
-    throw new Error("build-request.json に virtualFs がありません。");
+  if (["cdylib", "rlib", "staticlib", "dylib"].includes(value)) {
+    return value;
   }
 
-  if (!request.virtualFs.files || typeof request.virtualFs.files !== "object") {
-    throw new Error("build-request.json に virtualFs.files がありません。");
+  return "cdylib";
+}
+
+function normalizeOutputMode(outputMode) {
+  const value = trimOrEmpty(outputMode || "wasm-js").toLowerCase();
+  if (["wasm-js", "wasm-only", "js-only"].includes(value)) return value;
+  return "wasm-js";
+}
+
+function normalizeSubFiles(subFiles) {
+  if (!subFiles) return [];
+
+  if (Array.isArray(subFiles)) {
+    return subFiles
+      .filter((file) => file && typeof file === "object")
+      .map((file, index) => ({
+        name: trimOrEmpty(file.name || file.path || `sub-${index}.rs`),
+        content: normalizeLineBreaks(file.content || "")
+      }))
+      .filter((file) => file.name);
   }
 
-  return request;
+  if (typeof subFiles === "object") {
+    return Object.entries(subFiles)
+      .map(([name, content]) => ({
+        name: trimOrEmpty(name),
+        content: normalizeLineBreaks(content || "")
+      }))
+      .filter((file) => file.name);
+  }
+
+  return [];
+}
+
+function collectConfig(rawRequest) {
+  const request = unwrapRequest(rawRequest);
+  const entryPoint = normalizeEntryPoint(request.entryPoint || "src/lib.rs");
+  const entryTarget = inferEntryTarget(entryPoint);
+
+  return {
+    buildId: trimOrEmpty(request.buildId || `rust-build-${Date.now()}`),
+    projectName: normalizeProjectName(request.projectName || "sample-rust-project"),
+    version: trimOrEmpty(request.version || "0.1.0") || "0.1.0",
+    edition: normalizeEdition(request.edition),
+    entryPoint,
+    entryTarget,
+    crateType: normalizeCrateType(request.crateType, entryTarget),
+    buildMode: normalizeBuildMode(request.buildMode),
+    outputMode: normalizeOutputMode(request.outputMode),
+    dependenciesText: normalizeLineBreaks(request.dependenciesText || ""),
+    featuresText: normalizeLineBreaks(request.featuresText || ""),
+    mainRustCode: normalizeLineBreaks(request.mainRustCode || ""),
+    subFiles: normalizeSubFiles(request.subFiles)
+  };
+}
+
+function validateConfig(config) {
+  const errors = [];
+  const warnings = [];
+
+  if (!config.projectName) {
+    errors.push("projectName が空です。");
+  }
+
+  if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(config.projectName)) {
+    errors.push("projectName は英小文字・数字・ハイフンのみで指定してください。");
+  }
+
+  if (!/^\d+\.\d+\.\d+$/.test(config.version)) {
+    errors.push("version は 0.1.0 のような形式にしてください。");
+  }
+
+  if (!config.entryPoint.endsWith(".rs")) {
+    errors.push("entryPoint は .rs ファイルを指定してください。");
+  }
+
+  if (!trimOrEmpty(config.mainRustCode)) {
+    errors.push("mainRustCode が空です。");
+  }
+
+  if (config.entryTarget === "main") {
+    warnings.push("main.rs は通常のバイナリ扱いになります。wasm ライブラリ用途なら src/lib.rs を使ってください。");
+  }
+
+  return { errors, warnings };
 }
 
 function cleanGenerated() {
   fs.rmSync(GENERATED_DIR, { recursive: true, force: true });
-  fs.mkdirSync(PROJECT_DIR, { recursive: true });
-  fs.mkdirSync(DIST_DIR, { recursive: true });
+  ensureDir(PROJECT_DIR);
+  ensureDir(SRC_DIR);
+  ensureDir(DIST_DIR);
 }
 
-function validateVirtualPath(virtualPath) {
-  if (typeof virtualPath !== "string") {
-    throw new Error("virtualFs のパスが文字列ではありません。");
+function buildCargoToml(config) {
+  const lines = [];
+
+  lines.push("[package]");
+  lines.push(`name = "${config.projectName}"`);
+  lines.push(`version = "${config.version}"`);
+  lines.push(`edition = "${config.edition}"`);
+  lines.push("");
+
+  if (config.entryTarget === "lib") {
+    lines.push("[lib]");
+    lines.push(`crate-type = ["${config.crateType}"]`);
+    lines.push("");
   }
 
-  if (!virtualPath.startsWith("/")) {
-    throw new Error("virtualFs のパスは / から始めてください: " + virtualPath);
+  if (config.entryTarget === "main") {
+    lines.push("[[bin]]");
+    lines.push(`name = "${config.projectName}"`);
+    lines.push(`path = "${config.entryPoint}"`);
+    lines.push("");
   }
 
-  if (virtualPath.includes("..")) {
-    throw new Error("virtualFs のパスに .. は使えません: " + virtualPath);
+  const dependencies = trimOrEmpty(config.dependenciesText);
+  if (dependencies) {
+    lines.push("[dependencies]");
+    lines.push(dependencies);
+    lines.push("");
+  } else {
+    lines.push("[dependencies]");
+    lines.push("");
   }
 
-  if (virtualPath.includes("\0")) {
-    throw new Error("virtualFs のパスに NULL 文字は使えません。");
+  const features = trimOrEmpty(config.featuresText);
+  if (features) {
+    lines.push("[features]");
+    lines.push(features);
+    lines.push("");
   }
+
+  return lines.join("\n").trim() + "\n";
 }
 
-function writeVirtualFs(request) {
-  const files = request.virtualFs.files;
+function normalizeProjectFilePath(fileName) {
+  const clean = trimOrEmpty(fileName).replace(/\\/g, "/").replace(/^\/+/, "");
 
-  Object.keys(files).forEach((virtualPath) => {
-    validateVirtualPath(virtualPath);
+  if (!clean) {
+    throw new Error("空のファイル名は使えません。");
+  }
 
-    const relativePath = virtualPath.replace(/^\/+/, "");
-    const realPath = path.join(PROJECT_DIR, relativePath);
+  if (clean.includes("..")) {
+    throw new Error("危険なファイルパスが含まれています: " + fileName);
+  }
 
-    if (!realPath.startsWith(PROJECT_DIR)) {
-      throw new Error("virtualFs のパスがプロジェクト外を指しています: " + virtualPath);
+  if (clean.startsWith("src/")) {
+    return clean;
+  }
+
+  return "src/" + clean;
+}
+
+function createProjectFiles(config) {
+  writeText(path.join(PROJECT_DIR, "Cargo.toml"), buildCargoToml(config));
+  writeText(path.join(PROJECT_DIR, config.entryPoint), config.mainRustCode);
+
+  for (const file of config.subFiles) {
+    const relativePath = normalizeProjectFilePath(file.name);
+
+    if (relativePath === config.entryPoint) {
+      continue;
     }
 
-    writeFileSafe(realPath, String(files[virtualPath] ?? ""));
-  });
-}
-
-function ensureCargoToml() {
-  const cargoTomlPath = path.join(PROJECT_DIR, "Cargo.toml");
-
-  if (!fs.existsSync(cargoTomlPath)) {
-    throw new Error("Cargo.toml が生成されていません。");
+    writeText(path.join(PROJECT_DIR, relativePath), file.content);
   }
-}
-
-function ensureSourceExists(request) {
-  const entryPath = String(request.virtualFs.entryPath || "/src/lib.rs");
-  validateVirtualPath(entryPath);
-
-  const relativePath = entryPath.replace(/^\/+/, "");
-  const realPath = path.join(PROJECT_DIR, relativePath);
-
-  if (!fs.existsSync(realPath)) {
-    throw new Error("エントリーファイルが存在しません: " + entryPath);
-  }
-}
-
-function prepare() {
-  const request = loadRequest();
-
-  cleanGenerated();
-  writeVirtualFs(request);
-  ensureCargoToml();
-  ensureSourceExists(request);
-
-  writeFileSafe(
-    path.join(DIST_DIR, "build-request.json"),
-    JSON.stringify(request, null, 2)
-  );
-
-  writeFileSafe(
-    path.join(DIST_DIR, "prepare-log.txt"),
-    [
-      "prepare completed",
-      "build id: " + request.build.buildId,
-      "project: " + request.build.projectName,
-      "entry: " + request.build.entryPoint,
-      "crate type: " + request.build.crateType,
-      "build mode: " + request.build.buildMode,
-      "output mode: " + request.build.outputMode
-    ].join("\n")
-  );
-
-  console.log("Prepared virtual Rust project.");
 }
 
 function runCommand(command, args, options = {}) {
   const result = spawnSync(command, args, {
-    stdio: "inherit",
-    shell: false,
-    ...options
+    cwd: options.cwd || ROOT_DIR,
+    env: {
+      ...process.env,
+      ...(options.env || {})
+    },
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
   });
 
-  if (result.status !== 0) {
-    throw new Error(command + " failed with exit code " + result.status);
-  }
+  return {
+    command,
+    args,
+    cwd: options.cwd || ROOT_DIR,
+    status: result.status,
+    stdout: result.stdout || "",
+    stderr: result.stderr || "",
+    ok: result.status === 0
+  };
 }
 
-function findBuiltWasm(request) {
-  const projectName = normalizeProjectName(request.build.projectName);
-  const stem = crateFileStem(projectName);
-  const buildMode = String(request.build.buildMode || "release");
-  const profileDir = buildMode === "debug" ? "debug" : "release";
+function runRequired(command, args, options = {}) {
+  const result = runCommand(command, args, options);
 
-  const directPath = path.join(
-    PROJECT_DIR,
-    "target",
-    "wasm32-unknown-unknown",
-    profileDir,
-    stem + ".wasm"
-  );
+  if (!result.ok) {
+    const message = [
+      `コマンドに失敗しました: ${command} ${args.join(" ")}`,
+      `cwd: ${result.cwd}`,
+      `status: ${result.status}`,
+      "",
+      "----- stdout -----",
+      result.stdout || "(なし)",
+      "",
+      "----- stderr -----",
+      result.stderr || "(なし)"
+    ].join("\n");
 
-  if (fs.existsSync(directPath)) {
-    return directPath;
+    throw new Error(message);
   }
 
-  const searchDir = path.join(
+  return result;
+}
+
+function buildRustProject(config) {
+  const args = ["build", "--target", "wasm32-unknown-unknown"];
+
+  if (config.buildMode === "release") {
+    args.push("--release");
+  }
+
+  return runRequired("cargo", args, { cwd: PROJECT_DIR });
+}
+
+function findWasmOutput(config) {
+  const crateOutputName = rustCrateOutputName(config.projectName);
+  const modeDir = config.buildMode === "release" ? "release" : "debug";
+
+  const expectedPath = path.join(
     PROJECT_DIR,
     "target",
     "wasm32-unknown-unknown",
-    profileDir
+    modeDir,
+    `${crateOutputName}.wasm`
   );
 
+  if (fs.existsSync(expectedPath)) {
+    return expectedPath;
+  }
+
+  const searchDir = path.join(PROJECT_DIR, "target", "wasm32-unknown-unknown", modeDir);
+
   if (!fs.existsSync(searchDir)) {
-    throw new Error("wasm 出力ディレクトリが見つかりません: " + searchDir);
+    return null;
   }
 
   const candidates = fs
@@ -209,174 +366,218 @@ function findBuiltWasm(request) {
     .filter((name) => name.endsWith(".wasm"))
     .map((name) => path.join(searchDir, name));
 
-  if (!candidates.length) {
-    throw new Error("cargo build 後の .wasm が見つかりません。");
-  }
-
-  return candidates[0];
+  return candidates[0] || null;
 }
 
-function bindgen() {
-  const request = loadRequest();
-  const outputMode = String(request.build.outputMode || "wasm-js");
+function makeLoaderJs(config) {
+  const functionName = "load" + config.projectName
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
 
-  const wasmPath = findBuiltWasm(request);
-  const rawWasmOut = path.join(DIST_DIR, "raw", path.basename(wasmPath));
+  const wasmFileName = `./${config.projectName}.wasm`;
 
-  copyFileSafe(wasmPath, rawWasmOut);
-
-  if (outputMode === "wasm-only") {
-    copyFileSafe(
-      wasmPath,
-      path.join(DIST_DIR, normalizeProjectName(request.build.projectName) + ".wasm")
-    );
-
-    writeFileSafe(
-      path.join(DIST_DIR, "bindgen-log.txt"),
-      [
-        "wasm-only mode",
-        "wasm copied: " + path.basename(wasmPath)
-      ].join("\n")
-    );
-
-    console.log("wasm-only output completed.");
-    return;
-  }
-
-  runCommand("wasm-bindgen", [
-    wasmPath,
-    "--target",
-    "web",
-    "--out-dir",
-    path.join(DIST_DIR, "pkg"),
-    "--out-name",
-    crateFileStem(request.build.projectName)
-  ]);
-
-  writeFileSafe(
-    path.join(DIST_DIR, "bindgen-log.txt"),
-    [
-      "wasm-bindgen completed",
-      "target: web",
-      "source wasm: " + wasmPath,
-      "out dir: " + path.join(DIST_DIR, "pkg")
-    ].join("\n")
-  );
-
-  console.log("wasm-bindgen completed.");
+  return [
+    "// Rust Wasm loader",
+    `// build id: ${config.buildId}`,
+    `// project: ${config.projectName}`,
+    "",
+    `export async function ${functionName}(imports = {}) {`,
+    `  const wasmUrl = new URL("${wasmFileName}", import.meta.url);`,
+    "  const response = await fetch(wasmUrl);",
+    "  if (!response.ok) {",
+    "    throw new Error(`Wasm fetch failed: ${response.status} ${response.statusText}`);",
+    "  }",
+    "  const bytes = await response.arrayBuffer();",
+    "  const result = await WebAssembly.instantiate(bytes, imports);",
+    "  return result.instance;",
+    "}",
+    "",
+    "export default " + functionName + ";",
+    ""
+  ].join("\n");
 }
 
-function collectCargoFiles() {
-  const cargoToml = path.join(PROJECT_DIR, "Cargo.toml");
-  const cargoLock = path.join(PROJECT_DIR, "Cargo.lock");
+function makeExampleJs(config) {
+  const functionName = "load" + config.projectName
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join("");
 
-  if (fs.existsSync(cargoToml)) {
-    copyFileSafe(cargoToml, path.join(DIST_DIR, "Cargo.toml"));
-  }
-
-  if (fs.existsSync(cargoLock)) {
-    copyFileSafe(cargoLock, path.join(DIST_DIR, "Cargo.lock"));
-  }
+  return [
+    "// Example usage",
+    `import { ${functionName} } from "./${config.projectName}.loader.js";`,
+    "",
+    "async function main() {",
+    `  const instance = await ${functionName}({});`,
+    "  console.log('Wasm instance:', instance);",
+    "  console.log('exports:', Object.keys(instance.exports));",
+    "}",
+    "",
+    "main().catch(console.error);",
+    ""
+  ].join("\n");
 }
 
-function collectSourceFiles() {
-  const srcDir = path.join(PROJECT_DIR, "src");
-  const outDir = path.join(DIST_DIR, "src");
+function copyArtifacts(config, cargoResult) {
+  const artifacts = [];
 
-  if (!fs.existsSync(srcDir)) return;
+  const cargoToml = fs.readFileSync(path.join(PROJECT_DIR, "Cargo.toml"), "utf8");
 
-  function walk(currentDir) {
-    fs.readdirSync(currentDir, { withFileTypes: true }).forEach((entry) => {
-      const from = path.join(currentDir, entry.name);
-      const relative = path.relative(srcDir, from);
-      const to = path.join(outDir, relative);
+  const cargoTomlArtifact = {
+    name: "Cargo.toml",
+    type: "text/plain;charset=utf-8",
+    content: cargoToml
+  };
 
-      if (entry.isDirectory()) {
-        fs.mkdirSync(to, { recursive: true });
-        walk(from);
-        return;
-      }
+  artifacts.push(cargoTomlArtifact);
+  writeText(path.join(DIST_DIR, "Cargo.toml"), cargoToml);
 
-      if (entry.isFile()) {
-        copyFileSafe(from, to);
-      }
+  if (config.outputMode === "wasm-js" || config.outputMode === "wasm-only") {
+    const wasmPath = findWasmOutput(config);
+
+    if (!wasmPath) {
+      throw new Error(".wasm ファイルが生成されませんでした。crate-type、entryPoint、Rustコードを確認してください。");
+    }
+
+    const distWasmName = `${config.projectName}.wasm`;
+    const distWasmPath = path.join(DIST_DIR, distWasmName);
+
+    fs.copyFileSync(wasmPath, distWasmPath);
+
+    artifacts.push({
+      name: distWasmName,
+      type: "application/wasm",
+      content: "[binary wasm artifact]"
     });
   }
 
-  walk(srcDir);
+  if (config.outputMode === "wasm-js" || config.outputMode === "js-only") {
+    const loaderName = `${config.projectName}.loader.js`;
+    const exampleName = `${config.projectName}.example.js`;
+    const loaderContent = makeLoaderJs(config);
+    const exampleContent = makeExampleJs(config);
+
+    writeText(path.join(DIST_DIR, loaderName), loaderContent);
+    writeText(path.join(DIST_DIR, exampleName), exampleContent);
+
+    artifacts.push({
+      name: loaderName,
+      type: "application/javascript;charset=utf-8",
+      content: loaderContent
+    });
+
+    artifacts.push({
+      name: exampleName,
+      type: "application/javascript;charset=utf-8",
+      content: exampleContent
+    });
+  }
+
+  const logText = makeBuildLog(config, cargoResult, artifacts);
+  writeText(path.join(DIST_DIR, "build-log.txt"), logText);
+
+  artifacts.unshift({
+    name: "build-log.txt",
+    type: "text/plain;charset=utf-8",
+    content: logText
+  });
+
+  const manifest = {
+    ok: true,
+    buildId: config.buildId,
+    projectName: config.projectName,
+    buildMode: config.buildMode,
+    outputMode: config.outputMode,
+    entryPoint: config.entryPoint,
+    entryTarget: config.entryTarget,
+    crateType: config.crateType,
+    generatedAt: new Date().toISOString(),
+    artifacts: artifacts.map((file) => ({
+      name: file.name,
+      type: file.type
+    }))
+  };
+
+  writeText(path.join(DIST_DIR, "manifest.json"), JSON.stringify(manifest, null, 2));
+
+  return artifacts;
 }
 
-function makeFinalReadme(request) {
-  const projectName = normalizeProjectName(request.build.projectName);
-  const stem = crateFileStem(projectName);
-
+function makeBuildLog(config, cargoResult, artifacts) {
   const lines = [];
 
-  lines.push("# Rust Wasm Build Output");
+  lines.push("=== Rust Wasm Build ===");
+  lines.push("status: success");
+  lines.push("buildId: " + config.buildId);
+  lines.push("projectName: " + config.projectName);
+  lines.push("version: " + config.version);
+  lines.push("edition: " + config.edition);
+  lines.push("entryPoint: " + config.entryPoint);
+  lines.push("entryTarget: " + config.entryTarget);
+  lines.push("crateType: " + config.crateType);
+  lines.push("buildMode: " + config.buildMode);
+  lines.push("outputMode: " + config.outputMode);
   lines.push("");
-  lines.push("build id: `" + request.build.buildId + "`");
-  lines.push("project: `" + projectName + "`");
-  lines.push("mode: `" + request.build.buildMode + "`");
-  lines.push("output: `" + request.build.outputMode + "`");
+  lines.push("generated files:");
+  for (const file of artifacts) {
+    lines.push("- " + file.name);
+  }
   lines.push("");
-  lines.push("## Browser usage");
+  lines.push("----- cargo stdout -----");
+  lines.push(cargoResult.stdout || "(なし)");
   lines.push("");
-  lines.push("```js");
-  lines.push('import init, * as wasmModule from "./pkg/' + stem + '.js";');
-  lines.push("");
-  lines.push("await init();");
-  lines.push("console.log(wasmModule);");
-  lines.push("```");
-  lines.push("");
-  lines.push("## Files");
-  lines.push("");
-  lines.push("- `pkg/` : wasm-bindgen output");
-  lines.push("- `raw/` : cargo build raw wasm");
-  lines.push("- `Cargo.toml`");
-  lines.push("- `Cargo.lock`");
-  lines.push("- `src/`");
-  lines.push("- `build-request.json`");
+  lines.push("----- cargo stderr -----");
+  lines.push(cargoResult.stderr || "(なし)");
 
   return lines.join("\n");
 }
 
-function collect() {
-  const request = loadRequest();
+function writeFailureLog(error) {
+  ensureDir(DIST_DIR);
 
-  collectCargoFiles();
-  collectSourceFiles();
+  const text = [
+    "=== Rust Wasm Build ===",
+    "status: error",
+    "",
+    String(error && error.stack ? error.stack : error)
+  ].join("\n");
 
-  writeFileSafe(
-    path.join(DIST_DIR, "README.md"),
-    makeFinalReadme(request)
-  );
-
-  writeFileSafe(
-    path.join(DIST_DIR, "final-log.txt"),
-    [
-      "collect completed",
-      "build id: " + request.build.buildId,
-      "project: " + request.build.projectName,
-      "artifact directory: .generated/dist"
-    ].join("\n")
-  );
-
-  console.log("Artifacts collected.");
+  writeText(path.join(DIST_DIR, "build-log.txt"), text);
 }
 
-const command = process.argv[2];
+function main() {
+  let config = null;
 
-try {
-  if (command === "prepare") {
-    prepare();
-  } else if (command === "bindgen") {
-    bindgen();
-  } else if (command === "collect") {
-    collect();
-  } else {
-    throw new Error("unknown command: " + command);
+  try {
+    const rawRequest = readJsonFromEnv();
+    config = collectConfig(rawRequest);
+
+    const validation = validateConfig(config);
+    if (validation.errors.length) {
+      throw new Error("ビルド設定が不正です。\n- " + validation.errors.join("\n- "));
+    }
+
+    cleanGenerated();
+    createProjectFiles(config);
+
+    const cargoResult = buildRustProject(config);
+    const artifacts = copyArtifacts(config, cargoResult);
+
+    console.log("Rust Wasm build succeeded.");
+    console.log("buildId:", config.buildId);
+    console.log("projectName:", config.projectName);
+    console.log("artifacts:");
+    for (const file of artifacts) {
+      console.log("-", file.name);
+    }
+  } catch (error) {
+    writeFailureLog(error);
+    console.error(String(error && error.stack ? error.stack : error));
+    process.exit(1);
   }
-} catch (error) {
-  console.error(error);
-  process.exit(1);
 }
+
+main();
