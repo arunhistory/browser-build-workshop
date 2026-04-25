@@ -1,7 +1,5 @@
 name: Rust Wasm Build
 
-run-name: Rust Wasm Build - ${{ github.event.inputs.buildRequestJson }}
-
 on:
   workflow_dispatch:
     inputs:
@@ -18,7 +16,7 @@ jobs:
   build:
     name: Build Rust to Wasm
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
@@ -34,11 +32,15 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install wasm-bindgen CLI
+        run: cargo install wasm-bindgen-cli
+
       - name: Show tool versions
         run: |
           rustc --version
           cargo --version
           node --version
+          wasm-bindgen --version
 
       - name: Run Rust Wasm build
         env:
@@ -51,4 +53,3 @@ jobs:
           name: rust-wasm-build
           path: .generated/dist
           if-no-files-found: error
-          retention-days: 1
