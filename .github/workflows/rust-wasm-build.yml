@@ -1,69 +1,51 @@
 name: Rust Wasm Build
 
 on:
-  push:
-    paths:
-      - "build-requests/current/build-request.json"
-      - ".github/workflows/rust-wasm-build.yml"
-      - "tools/build-rust-wasm.mjs"
   workflow_dispatch:
+    inputs:
+      buildRequestJson:
+        description: "Rust build request JSON"
+        required: true
+        type: string
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
-  build-rust-wasm:
+  build:
     name: Build Rust to Wasm
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Rust toolchain
+      - name: Setup Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-
-      - name: Show rust version
-        run: |
-          rustc --version
-          cargo --version
-
-      - name: Install wasm-bindgen-cli
-        run: |
-          cargo install wasm-bindgen-cli --locked
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Prepare virtual Rust project
+      - name: Show tool versions
         run: |
-          node tools/build-rust-wasm.mjs prepare
+          rustc --version
+          cargo --version
+          node --version
 
-      - name: Cargo check
-        working-directory: .generated/rust-project
-        run: |
-          cargo check --target wasm32-unknown-unknown
+      - name: Run Rust Wasm build
+        env:
+          BUILD_REQUEST_JSON: ${{ inputs.buildRequestJson }}
+        run: node tools/build-rust-wasm.mjs
 
-      - name: Cargo build release
-        working-directory: .generated/rust-project
-        run: |
-          cargo build --target wasm32-unknown-unknown --release
-
-      - name: Run wasm-bindgen
-        run: |
-          node tools/build-rust-wasm.mjs bindgen
-
-      - name: Collect artifacts
-        run: |
-          node tools/build-rust-wasm.mjs collect
-
-      - name: Upload wasm artifacts
+      - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: rust-wasm-output
+          name: rust-wasm-build
           path: .generated/dist
           if-no-files-found: error
