@@ -1,5 +1,7 @@
 name: Rust Wasm Build
 
+run-name: Rust Wasm Build - ${{ github.event.inputs.buildRequestJson }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -49,3 +51,4 @@ jobs:
           name: rust-wasm-build
           path: .generated/dist
           if-no-files-found: error
+          retention-days: 1
