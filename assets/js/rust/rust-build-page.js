@@ -1,9 +1,8 @@
 (function (global) {
-  "use strict";
+  'use strict';
 
   const state = {
-    files: [],
-    activeFileId: null,
+    subFiles: [],
     lastBuildResult: null,
     isRunning: false
   };
@@ -14,8 +13,8 @@
 
   function safeValue(id, fallback) {
     const el = getEl(id);
-    if (!el) return fallback || "";
-    return typeof el.value === "string" ? el.value : (fallback || "");
+    if (!el) return fallback || '';
+    return typeof el.value === 'string' ? el.value : (fallback || '');
   }
 
   function setValue(id, value) {
@@ -32,6 +31,13 @@
     }
   }
 
+  function setHtml(id, value) {
+    const el = getEl(id);
+    if (el) {
+      el.innerHTML = value;
+    }
+  }
+
   function setDisabled(id, disabled) {
     const el = getEl(id);
     if (el) {
@@ -39,591 +45,410 @@
     }
   }
 
+  function normalizeOutputMode(raw) {
+    if (raw === 'wasm-only') return 'wasm-only';
+    if (raw === 'js-only') return 'js-only';
+    return 'wasm-js';
+  }
+
   function escapeHtml(text) {
     return String(text)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#39;");
-  }
-
-  function createId(prefix) {
-    return prefix + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
-  }
-
-  function normalizeTsFileName(name) {
-    const value = String(name || "main.ts").trim();
-
-    if (!value) return "main.ts";
-    if (value.endsWith(".ts") || value.endsWith(".tsx")) return value;
-
-    return value + ".ts";
-  }
-
-  function toJsFileName(name) {
-    return String(name || "main.ts")
-      .replace(/\.tsx$/i, ".js")
-      .replace(/\.ts$/i, ".js");
-  }
-
-  function getActiveFile() {
-    return state.files.find(function (file) {
-      return file.id === state.activeFileId;
-    }) || null;
-  }
-
-  function getTsInputEl() {
-    return getEl("tsInput") || getEl("mainTsInput");
-  }
-
-  function getJsOutputEl() {
-    return getEl("jsOutput") || getEl("buildOutput");
-  }
-
-  function getLogEl() {
-    return getEl("logOutput") || getEl("buildLog");
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   function showStatus(message) {
-    const statusEl = getEl("buildStatus");
-
-    if (statusEl) {
-      statusEl.textContent = "状態: " + message;
-      return;
-    }
-
-    appendLog("[STATUS] " + message);
+    setText('buildStatus', '状態: ' + message);
   }
 
   function showLog(text) {
-    const logEl = getLogEl();
+    const logEl = getEl('buildLog');
     if (!logEl) return;
 
-    if ("value" in logEl) {
-      logEl.value = text || "";
+    if ('value' in logEl) {
+      logEl.value = text || '';
       return;
     }
 
-    logEl.textContent = text || "";
-  }
-
-  function appendLog(text) {
-    const logEl = getLogEl();
-    if (!logEl) return;
-
-    const current = "value" in logEl ? logEl.value : logEl.textContent;
-    const next = current ? current + "\n" + text : text;
-
-    if ("value" in logEl) {
-      logEl.value = next;
-    } else {
-      logEl.textContent = next;
-    }
+    logEl.textContent = text || '';
   }
 
   function showOutput(text) {
-    const outputEl = getJsOutputEl();
+    const outputEl = getEl('buildOutput');
     if (!outputEl) return;
 
-    if ("value" in outputEl) {
-      outputEl.value = text || "";
+    if ('value' in outputEl) {
+      outputEl.value = text || '';
       return;
     }
 
-    outputEl.textContent = text || "";
+    outputEl.textContent = text || '';
   }
 
-  function collectSettings() {
-    return {
-      projectName: safeValue("projectName", "sample-ts-project").trim() || "sample-ts-project",
-      entryFileName: normalizeTsFileName(safeValue("fileName", "main.ts")),
-      outputName: safeValue("outputName", "index.js").trim() || "index.js",
-      moduleMode: safeValue("moduleMode", "esnext").trim() || "esnext",
-      targetMode: safeValue("targetMode", "es2020").trim() || "es2020",
-      enableMinify: !!getEl("enableMinify") && !!getEl("enableMinify").checked,
-      enableObfuscate: !!getEl("enableObfuscate") && !!getEl("enableObfuscate").checked,
-      keepComments: !getEl("keepComments") || !!getEl("keepComments").checked,
-      strictMode: !getEl("strictMode") || !!getEl("strictMode").checked
-    };
+  function setTextareaOrText(id, value) {
+    const el = getEl(id);
+    if (!el) return;
+
+    if ('value' in el) {
+      el.value = value || '';
+      return;
+    }
+
+    el.textContent = value || '';
   }
 
-  function syncCurrentInputToFile() {
-    const active = getActiveFile();
-    const input = getTsInputEl();
-
-    if (!active || !input) return;
-
-    active.name = normalizeTsFileName(safeValue("fileName", active.name));
-    active.content = input.value || "";
-  }
-
-  function syncFileToPage(file) {
-    const input = getTsInputEl();
-
-    if (!file) return;
-
-    setValue("fileName", file.name);
-
-    if (input) {
-      input.value = file.content || "";
+  function setLabelTextByFor(forId, text) {
+    const label = document.querySelector('label[for="' + forId + '"]');
+    if (label) {
+      label.textContent = text;
     }
   }
 
-  function createInitialFile() {
-    const input = getTsInputEl();
+  function clearSeparatedOutputs() {
+    setLabelTextByFor('fileOutputWasm', '〇〇.wasm');
+    setLabelTextByFor('fileOutputLoaderJs', '〇〇.loader.js');
+    setLabelTextByFor('fileOutputExampleJs', '〇〇.example.js');
 
-    const file = {
-      id: createId("ts-file"),
-      name: normalizeTsFileName(safeValue("fileName", "main.ts")),
-      content: input ? input.value : ""
-    };
-
-    state.files = [file];
-    state.activeFileId = file.id;
+    setTextareaOrText('fileOutputWasm', 'まだ生成されていません。');
+    setTextareaOrText('fileOutputLoaderJs', 'まだ生成されていません。');
+    setTextareaOrText('fileOutputExampleJs', 'まだ生成されていません。');
   }
 
-  function createNextFileName() {
-    let index = state.files.length + 1;
+  function findOutputFileByExt(outputFiles, ext) {
+    if (!Array.isArray(outputFiles)) return null;
+    for (const file of outputFiles) {
+      if (file && typeof file.name === 'string' && file.name.endsWith(ext)) {
+        return file;
+      }
+    }
+    return null;
+  }
 
-    while (
-      state.files.some(function (file) {
-        return file.name === "module-" + index + ".ts";
-      })
-    ) {
-      index++;
+  function splitOutputFiles(result) {
+    const outputFileMap = result && result.outputFileMap && typeof result.outputFileMap === 'object'
+      ? result.outputFileMap
+      : null;
+
+    if (outputFileMap) {
+      setLabelTextByFor(
+        'fileOutputWasm',
+        outputFileMap.wasm && outputFileMap.wasm.name ? outputFileMap.wasm.name : '〇〇.wasm'
+      );
+      setLabelTextByFor(
+        'fileOutputLoaderJs',
+        outputFileMap.loaderJs && outputFileMap.loaderJs.name ? outputFileMap.loaderJs.name : '〇〇.loader.js'
+      );
+      setLabelTextByFor(
+        'fileOutputExampleJs',
+        outputFileMap.exampleJs && outputFileMap.exampleJs.name ? outputFileMap.exampleJs.name : '〇〇.example.js'
+      );
+
+      setTextareaOrText(
+        'fileOutputWasm',
+        outputFileMap.wasm && typeof outputFileMap.wasm.content === 'string'
+          ? outputFileMap.wasm.content
+          : 'まだ生成されていません。'
+      );
+      setTextareaOrText(
+        'fileOutputLoaderJs',
+        outputFileMap.loaderJs && typeof outputFileMap.loaderJs.content === 'string'
+          ? outputFileMap.loaderJs.content
+          : 'まだ生成されていません。'
+      );
+      setTextareaOrText(
+        'fileOutputExampleJs',
+        outputFileMap.exampleJs && typeof outputFileMap.exampleJs.content === 'string'
+          ? outputFileMap.exampleJs.content
+          : 'まだ生成されていません。'
+      );
+      return;
     }
 
-    return "module-" + index + ".ts";
+    const outputFiles = Array.isArray(result && result.outputFiles) ? result.outputFiles : [];
+    const wasmFile = findOutputFileByExt(outputFiles, '.wasm');
+    const loaderJsFile = findOutputFileByExt(outputFiles, '.loader.js');
+    const exampleJsFile = findOutputFileByExt(outputFiles, '.example.js');
+
+    setLabelTextByFor('fileOutputWasm', wasmFile ? wasmFile.name : '〇〇.wasm');
+    setLabelTextByFor('fileOutputLoaderJs', loaderJsFile ? loaderJsFile.name : '〇〇.loader.js');
+    setLabelTextByFor('fileOutputExampleJs', exampleJsFile ? exampleJsFile.name : '〇〇.example.js');
+
+    setTextareaOrText(
+      'fileOutputWasm',
+      wasmFile && typeof wasmFile.content === 'string'
+        ? wasmFile.content
+        : 'まだ生成されていません。'
+    );
+    setTextareaOrText(
+      'fileOutputLoaderJs',
+      loaderJsFile && typeof loaderJsFile.content === 'string'
+        ? loaderJsFile.content
+        : 'まだ生成されていません。'
+    );
+    setTextareaOrText(
+      'fileOutputExampleJs',
+      exampleJsFile && typeof exampleJsFile.content === 'string'
+        ? exampleJsFile.content
+        : 'まだ生成されていません。'
+    );
   }
 
-  function renderFiles() {
-    const target = getEl("fileList");
+  function readSubFileName() {
+    return safeValue('subFileName', '').trim();
+  }
+
+  function readSubFileCode() {
+    return safeValue('subFileCode', '');
+  }
+
+  function renderSubFiles() {
+    const target = getEl('subFilesList');
     if (!target) return;
 
-    if (!state.files.length) {
+    if (!state.subFiles.length) {
       target.innerHTML = [
         '<div class="file-item">',
-        "  <span>TSファイルはまだありません</span>",
-        "</div>"
-      ].join("");
+        '  <span>補助Rustファイルはまだ追加されていません</span>',
+        '  <span>-</span>',
+        '</div>'
+      ].join('');
       return;
     }
 
-    target.innerHTML = state.files.map(function (file, index) {
-      const active = file.id === state.activeFileId ? " active" : "";
-
+    target.innerHTML = state.subFiles.map(function (file, index) {
       return [
-        '<div class="file-item' + active + '">',
-        "  <div>",
-        "    <strong>" + escapeHtml(file.name) + "</strong>",
-        "    <div>文字数: " + String((file.content || "").length) + "</div>",
-        "  </div>",
+        '<div class="file-item">',
+        '  <div>',
+        '    <strong>' + escapeHtml(file.name) + '</strong>',
+        '    <div>文字数: ' + String((file.content || '').length) + '</div>',
+        '  </div>',
         '  <div class="file-item-actions">',
-        '    <button type="button" class="btn btn-muted" data-action="view-ts-file" data-index="' + String(index) + '">表示</button>',
-        '    <button type="button" class="btn btn-danger" data-action="remove-ts-file" data-index="' + String(index) + '">削除</button>',
-        "  </div>",
-        "</div>"
-      ].join("");
-    }).join("");
+        '    <button type="button" class="btn btn-muted" data-action="view-sub-file" data-index="' + String(index) + '">表示</button>',
+        '    <button type="button" class="btn btn-danger" data-action="remove-sub-file" data-index="' + String(index) + '">削除</button>',
+        '  </div>',
+        '</div>'
+      ].join('');
+    }).join('');
   }
 
-  function addFile() {
-    syncCurrentInputToFile();
+  function addSubFile() {
+    const name = readSubFileName();
+    const content = readSubFileCode();
 
-    const name = prompt("追加するTSファイル名", createNextFileName());
-    if (name === null) return;
+    if (!name) {
+      showStatus('補助ファイル名を入れてください');
+      return;
+    }
 
-    const fileName = normalizeTsFileName(name);
+    if (!/^[a-zA-Z0-9_.-]+$/.test(name)) {
+      showStatus('補助ファイル名に使えない文字があります');
+      return;
+    }
 
-    const exists = state.files.some(function (file) {
-      return file.name === fileName;
+    if (!name.endsWith('.rs')) {
+      showStatus('補助ファイル名は .rs で終わる必要があります');
+      return;
+    }
+
+    if (!content.trim()) {
+      showStatus('補助ファイルの中身が空です');
+      return;
+    }
+
+    const exists = state.subFiles.some(function (file) {
+      return file.name === name;
     });
 
     if (exists) {
-      showStatus("同じ名前のTSファイルは追加できません");
+      showStatus('同じ名前の補助ファイルは追加できません');
       return;
     }
 
-    const file = {
-      id: createId("ts-file"),
-      name: fileName,
-      content: ""
+    state.subFiles.push({
+      id: 'sub-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8),
+      name: name,
+      content: content
+    });
+
+    setValue('subFileName', '');
+    setValue('subFileCode', '');
+    renderSubFiles();
+    showStatus('補助ファイルを追加しました');
+  }
+
+  function removeSubFile(index) {
+    if (index < 0 || index >= state.subFiles.length) {
+      showStatus('削除対象の補助ファイルが見つかりません');
+      return;
+    }
+
+    const removed = state.subFiles.splice(index, 1)[0];
+    renderSubFiles();
+    showStatus('補助ファイルを削除しました: ' + removed.name);
+  }
+
+  function viewSubFile(index) {
+    if (index < 0 || index >= state.subFiles.length) {
+      showStatus('表示対象の補助ファイルが見つかりません');
+      return;
+    }
+
+    const file = state.subFiles[index];
+    setValue('subFileName', file.name);
+    setValue('subFileCode', file.content);
+    showStatus('補助ファイルを表示しました: ' + file.name);
+  }
+
+  function collectInput() {
+    return {
+      projectName: safeValue('projectName', 'sample-rust-project').trim() || 'sample-rust-project',
+      entryPoint: safeValue('entryType', 'lib.rs').trim() || 'lib.rs',
+      outputMode: normalizeOutputMode(safeValue('outputMode', 'wasm-js').trim()),
+      buildMode: safeValue('buildMode', 'release').trim() || 'release',
+      crateType: safeValue('crateType', 'cdylib').trim() || 'cdylib',
+      version: safeValue('version', '0.1.0').trim() || '0.1.0',
+      edition: safeValue('edition', '2021').trim() || '2021',
+      dependenciesText: safeValue('dependenciesText', ''),
+      featuresText: safeValue('featuresText', ''),
+      cargoTomlText: safeValue('cargoToml', ''),
+      mainRustCode: safeValue('mainRustCode', ''),
+      subFiles: state.subFiles.slice(),
+      flags: {
+        enableWasmBindgen: !!getEl('enableWasmBindgen') ? !!getEl('enableWasmBindgen').checked : true,
+        enableOptimize: !!getEl('enableOptimize') ? !!getEl('enableOptimize').checked : true,
+        enableJsLoader: !!getEl('enableJsLoader') ? !!getEl('enableJsLoader').checked : true
+      }
     };
-
-    state.files.push(file);
-    state.activeFileId = file.id;
-
-    syncFileToPage(file);
-    renderFiles();
-    showStatus("TSファイルを追加しました: " + file.name);
-  }
-
-  function removeFile(index) {
-    if (state.files.length <= 1) {
-      showStatus("最低1つのTSファイルが必要です");
-      return;
-    }
-
-    if (index < 0 || index >= state.files.length) {
-      showStatus("削除対象のTSファイルが見つかりません");
-      return;
-    }
-
-    const removed = state.files.splice(index, 1)[0];
-
-    if (removed.id === state.activeFileId) {
-      const next = state.files[index] || state.files[index - 1] || state.files[0];
-      state.activeFileId = next.id;
-      syncFileToPage(next);
-    }
-
-    renderFiles();
-    showStatus("TSファイルを削除しました: " + removed.name);
-  }
-
-  function viewFile(index) {
-    if (index < 0 || index >= state.files.length) {
-      showStatus("表示対象のTSファイルが見つかりません");
-      return;
-    }
-
-    syncCurrentInputToFile();
-
-    const file = state.files[index];
-    state.activeFileId = file.id;
-
-    syncFileToPage(file);
-    renderFiles();
-    showStatus("TSファイルを表示しました: " + file.name);
   }
 
   function lockUi(locked) {
-    setDisabled("runBuild", locked);
-    setDisabled("runBuildButton", locked);
-    setDisabled("addFile", locked);
-    setDisabled("deleteFile", locked);
-    setDisabled("saveDraft", locked);
-    setDisabled("loadDraft", locked);
-    setDisabled("downloadJs", locked);
-    setDisabled("downloadLog", locked);
-    setDisabled("downloadAll", locked);
-    setDisabled("clearLog", locked);
+    setDisabled('runBuildButton', locked);
+    setDisabled('addSubFileButton', locked);
+    setDisabled('clearAllButton', locked);
+    setDisabled('downloadOutputButton', locked);
+    setDisabled('downloadLogButton', locked);
+    setDisabled('copyOutputButton', locked);
   }
 
-  function toTsModuleKind(value) {
-    const ts = global.ts;
-    const mode = String(value || "esnext").toLowerCase();
-
-    if (mode === "none") return ts.ModuleKind.None;
-    if (mode === "commonjs") return ts.ModuleKind.CommonJS;
-    if (mode === "amd") return ts.ModuleKind.AMD;
-    if (mode === "umd") return ts.ModuleKind.UMD;
-    if (mode === "system") return ts.ModuleKind.System;
-    if (mode === "es2015") return ts.ModuleKind.ES2015;
-    if (mode === "es2020") return ts.ModuleKind.ES2020;
-    if (mode === "es2022") return ts.ModuleKind.ES2022;
-    if (mode === "node16") return ts.ModuleKind.Node16;
-    if (mode === "nodenext") return ts.ModuleKind.NodeNext;
-
-    return ts.ModuleKind.ESNext;
-  }
-
-  function toTsTarget(value) {
-    const ts = global.ts;
-    const target = String(value || "es2020").toLowerCase();
-
-    if (target === "es3") return ts.ScriptTarget.ES3;
-    if (target === "es5") return ts.ScriptTarget.ES5;
-    if (target === "es6") return ts.ScriptTarget.ES2015;
-    if (target === "es2015") return ts.ScriptTarget.ES2015;
-    if (target === "es2016") return ts.ScriptTarget.ES2016;
-    if (target === "es2017") return ts.ScriptTarget.ES2017;
-    if (target === "es2018") return ts.ScriptTarget.ES2018;
-    if (target === "es2019") return ts.ScriptTarget.ES2019;
-    if (target === "es2020") return ts.ScriptTarget.ES2020;
-    if (target === "es2021") return ts.ScriptTarget.ES2021;
-    if (target === "es2022") return ts.ScriptTarget.ES2022;
-    if (target === "esnext") return ts.ScriptTarget.ESNext;
-
-    return ts.ScriptTarget.ES2020;
-  }
-
-  function flattenDiagnostic(messageText) {
-    if (!global.ts) return String(messageText || "");
-    return global.ts.flattenDiagnosticMessageText(messageText, "\n");
-  }
-
-  function getDiagnosticLine(source, diagnostic) {
-    if (typeof diagnostic.start !== "number") {
-      return {
-        line: 1,
-        text: ""
-      };
+  function getBuildRunner() {
+    if (global.RustBuildController && typeof global.RustBuildController.runBuild === 'function') {
+      return global.RustBuildController;
     }
 
-    const before = source.slice(0, diagnostic.start);
-    const line = before.split(/\r?\n/).length;
-    const sourceLines = source.split(/\r?\n/);
-
-    return {
-      line: line,
-      text: sourceLines[line - 1] || ""
-    };
-  }
-
-  function compileOne(file, settings) {
-    if (!global.ts || typeof global.ts.transpileModule !== "function") {
-      throw new Error("TypeScript公式コンパイラが読み込まれていません。typescript.js を確認してください。");
+    if (global.RustBuildEngine && typeof global.RustBuildEngine.runBuild === 'function') {
+      return global.RustBuildEngine;
     }
 
-    const compilerOptions = {
-      module: toTsModuleKind(settings.moduleMode),
-      target: toTsTarget(settings.targetMode),
-      strict: !!settings.strictMode,
-      removeComments: settings.keepComments === false,
-      esModuleInterop: true,
-      skipLibCheck: true,
-      isolatedModules: true,
-      sourceMap: false,
-      inlineSourceMap: false,
-      inlineSources: false
-    };
-
-    const result = global.ts.transpileModule(file.content || "", {
-      compilerOptions: compilerOptions,
-      fileName: file.name,
-      reportDiagnostics: true
-    });
-
-    const diagnostics = result.diagnostics || [];
-    const logLines = [];
-
-    diagnostics.forEach(function (diagnostic) {
-      const position = getDiagnosticLine(file.content || "", diagnostic);
-      const message = flattenDiagnostic(diagnostic.messageText);
-      const category = global.ts.DiagnosticCategory[diagnostic.category] || "Message";
-
-      logLines.push(
-        "[" + category + "] " +
-        file.name + ":" + position.line + " " +
-        message
-      );
-
-      if (position.text) {
-        logLines.push("  " + position.text);
-      }
-    });
-
-    const hasError = diagnostics.some(function (diagnostic) {
-      return diagnostic.category === global.ts.DiagnosticCategory.Error;
-    });
-
-    if (hasError) {
-      throw new Error(file.name + " にTypeScript変換エラーがあります。\n" + logLines.join("\n"));
-    }
-
-    return {
-      name: toJsFileName(file.name),
-      content: result.outputText || "",
-      type: "text/javascript;charset=utf-8",
-      logLines: logLines
-    };
-  }
-
-  function minifyJavaScript(code) {
-    return String(code || "")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .split("\n")
-      .map(function (line) {
-        return line.trim();
-      })
-      .filter(function (line) {
-        return line.length > 0;
-      })
-      .join("\n");
-  }
-
-  function obfuscateJavaScript(code) {
-    const header = [
-      "(function(){",
-      '"use strict";'
-    ].join("\n");
-
-    const footer = "\n})();";
-
-    return header + "\n" + String(code || "") + footer;
+    return null;
   }
 
   function runBuild() {
     if (state.isRunning) {
-      showStatus("変換実行中です");
+      showStatus('ビルド実行中です');
       return;
     }
 
-    syncCurrentInputToFile();
+    const runner = getBuildRunner();
 
-    const settings = collectSettings();
+    if (!runner) {
+      showStatus('Rustビルド本体が見つかりません');
+      showLog('RustBuildController.runBuild または RustBuildEngine.runBuild が未定義です。');
+      clearSeparatedOutputs();
+      return;
+    }
 
     state.isRunning = true;
     lockUi(true);
-    showStatus("変換中...");
-    showLog("TypeScript変換を開始します...");
-    showOutput("");
+    showStatus('ビルド中...');
+    showLog('Rustビルドを開始します...');
+    showOutput('');
+    clearSeparatedOutputs();
+    setHtml('buildSummary', '');
 
     try {
-      const outputFiles = [];
-      const logLines = [];
+      const input = collectInput();
+      const result = runner.runBuild(input);
 
-      logLines.push("=== TS Build Start ===");
-      logLines.push("project: " + settings.projectName);
-      logLines.push("module: " + settings.moduleMode);
-      logLines.push("target: " + settings.targetMode);
-      logLines.push("files: " + String(state.files.length));
-      logLines.push("");
+      state.lastBuildResult = result;
 
-      state.files.forEach(function (file) {
-        logLines.push("[compile] " + file.name);
+      showLog(result.logText || '');
+      showOutput(result.outputText || '');
+      splitOutputFiles(result);
+      setHtml('buildSummary', result.summaryHtml || '');
 
-        const output = compileOne(file, settings);
-
-        output.logLines.forEach(function (line) {
-          logLines.push(line);
-        });
-
-        let content = output.content;
-
-        if (settings.enableMinify) {
-          content = minifyJavaScript(content);
-          logLines.push("[minify] " + output.name);
-        }
-
-        if (settings.enableObfuscate) {
-          content = obfuscateJavaScript(content);
-          logLines.push("[obfuscate] " + output.name);
-        }
-
-        outputFiles.push({
-          name: output.name,
-          content: content,
-          type: output.type
-        });
-      });
-
-      let outputText = "";
-
-      if (outputFiles.length === 1) {
-        outputText = outputFiles[0].content;
+      if (result.ok) {
+        showStatus('ビルド成功');
       } else {
-        outputText = outputFiles.map(function (file) {
-          return [
-            "/* ===== " + file.name + " ===== */",
-            file.content
-          ].join("\n");
-        }).join("\n\n");
+        showStatus('ビルド失敗');
       }
-
-      logLines.push("");
-      logLines.push("=== TS Build Success ===");
-
-      state.lastBuildResult = {
-        ok: true,
-        config: settings,
-        outputFiles: outputFiles,
-        outputText: outputText,
-        logText: logLines.join("\n")
-      };
-
-      showLog(state.lastBuildResult.logText);
-      showOutput(outputText);
-      showStatus("変換成功");
     } catch (error) {
       state.lastBuildResult = null;
-
-      const message = String(error && error.stack ? error.stack : error);
-
-      showLog(message);
-      showOutput("");
-      showStatus("変換失敗");
+      showStatus('ビルド中に例外が発生しました');
+      showLog(String(error && error.stack ? error.stack : error));
+      showOutput('');
+      clearSeparatedOutputs();
+      setHtml('buildSummary', '');
     } finally {
       state.isRunning = false;
       lockUi(false);
     }
   }
 
-  function clearLog() {
-    showLog("");
-    showStatus("ログを削除しました");
-  }
+  function clearAll() {
+    state.subFiles = [];
+    state.lastBuildResult = null;
 
-  function saveDraft() {
-    syncCurrentInputToFile();
+    setValue('projectName', 'sample-rust-project');
+    setValue('entryType', 'lib.rs');
+    setValue('outputMode', 'wasm-js');
+    setValue('buildMode', 'release');
+    setValue('crateType', 'cdylib');
+    setValue('version', '0.1.0');
+    setValue('edition', '2021');
+    setValue('dependenciesText', 'wasm-bindgen = "0.2"');
+    setValue('featuresText', '');
+    setValue('cargoToml', [
+      '[package]',
+      'name = "sample-rust-project"',
+      'version = "0.1.0"',
+      'edition = "2021"',
+      '',
+      '[lib]',
+      'crate-type = ["cdylib"]',
+      '',
+      '[dependencies]',
+      'wasm-bindgen = "0.2"'
+    ].join('\n'));
+    setValue('mainRustCode', [
+      'use wasm_bindgen::prelude::*;',
+      '',
+      '#[wasm_bindgen]',
+      'pub fn greet(name: &str) -> String {',
+      '    format!("hello {}", name)',
+      '}'
+    ].join('\n'));
+    setValue('subFileName', '');
+    setValue('subFileCode', '');
 
-    const data = {
-      version: 1,
-      savedAt: new Date().toISOString(),
-      files: state.files,
-      activeFileId: state.activeFileId,
-      settings: collectSettings()
-    };
+    if (getEl('enableWasmBindgen')) getEl('enableWasmBindgen').checked = true;
+    if (getEl('enableOptimize')) getEl('enableOptimize').checked = true;
+    if (getEl('enableJsLoader')) getEl('enableJsLoader').checked = true;
 
-    localStorage.setItem("browser-build-workshop:ts-draft:v1", JSON.stringify(data));
-    showStatus("下書きを保存しました");
-  }
-
-  function loadDraft() {
-    const raw = localStorage.getItem("browser-build-workshop:ts-draft:v1");
-
-    if (!raw) {
-      showStatus("保存済みの下書きがありません");
-      return;
-    }
-
-    try {
-      const data = JSON.parse(raw);
-
-      if (!data || !Array.isArray(data.files) || !data.files.length) {
-        throw new Error("下書きデータが不正です");
-      }
-
-      state.files = data.files;
-      state.activeFileId = data.activeFileId || state.files[0].id;
-
-      if (!getActiveFile()) {
-        state.activeFileId = state.files[0].id;
-      }
-
-      if (data.settings) {
-        setValue("projectName", data.settings.projectName || "sample-ts-project");
-        setValue("fileName", data.settings.entryFileName || "main.ts");
-        setValue("outputName", data.settings.outputName || "index.js");
-        setValue("moduleMode", data.settings.moduleMode || "esnext");
-        setValue("targetMode", data.settings.targetMode || "es2020");
-
-        if (getEl("enableMinify")) getEl("enableMinify").checked = !!data.settings.enableMinify;
-        if (getEl("enableObfuscate")) getEl("enableObfuscate").checked = !!data.settings.enableObfuscate;
-        if (getEl("keepComments")) getEl("keepComments").checked = data.settings.keepComments !== false;
-        if (getEl("strictMode")) getEl("strictMode").checked = data.settings.strictMode !== false;
-      }
-
-      syncFileToPage(getActiveFile());
-      renderFiles();
-      showStatus("下書きを読み込みました");
-    } catch (error) {
-      showStatus("下書きの読み込みに失敗しました");
-      showLog(String(error && error.stack ? error.stack : error));
-    }
+    showLog('');
+    showOutput('');
+    clearSeparatedOutputs();
+    setHtml('buildSummary', '');
+    renderSubFiles();
+    showStatus('初期化しました');
   }
 
   function downloadByAnchor(filename, content, mimeType) {
-    const blob = new Blob([content], {
-      type: mimeType || "text/plain;charset=utf-8"
-    });
-
+    const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
+    const anchor = document.createElement('a');
 
     anchor.href = url;
     anchor.download = filename;
@@ -636,188 +461,164 @@
     }, 1000);
   }
 
-  function downloadJs() {
-    if (!state.lastBuildResult || !Array.isArray(state.lastBuildResult.outputFiles)) {
-      showStatus("保存するJS出力がありません");
+  function downloadOutput() {
+    if (!state.lastBuildResult) {
+      showStatus('保存する出力がありません');
       return;
     }
 
-    const files = state.lastBuildResult.outputFiles;
+    const outputFiles = Array.isArray(state.lastBuildResult.outputFiles)
+      ? state.lastBuildResult.outputFiles
+      : [];
 
-    if (!files.length) {
-      showStatus("保存するJS出力がありません");
+    if (!outputFiles.length) {
+      showStatus('保存する出力がありません');
       return;
     }
 
-    if (files.length === 1) {
-      downloadByAnchor(files[0].name, files[0].content || "", files[0].type);
-      showStatus("JSを保存しました");
+    if (outputFiles.length === 1) {
+      downloadByAnchor(
+        outputFiles[0].name,
+        outputFiles[0].content || '',
+        outputFiles[0].type || 'text/plain;charset=utf-8'
+      );
+      showStatus('出力を保存しました');
       return;
     }
 
-    downloadAll();
+    const text = outputFiles.map(function (file) {
+      return [
+        '===== ' + file.name + ' =====',
+        file.content || ''
+      ].join('\n');
+    }).join('\n\n');
+
+    const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-output';
+    downloadByAnchor(projectName + '-bundle.txt', text, 'text/plain;charset=utf-8');
+    showStatus('複数出力をまとめて保存しました');
   }
 
   function downloadLog() {
     if (!state.lastBuildResult || !state.lastBuildResult.logText) {
-      showStatus("保存するログがありません");
+      showStatus('保存するログがありません');
       return;
     }
 
-    const projectName = state.lastBuildResult.config.projectName || "ts-build";
-    downloadByAnchor(projectName + "-build-log.txt", state.lastBuildResult.logText, "text/plain;charset=utf-8");
-    showStatus("ログを保存しました");
+    const projectName = (state.lastBuildResult.config && state.lastBuildResult.config.projectName) || 'rust-build';
+    downloadByAnchor(projectName + '-build-log.txt', state.lastBuildResult.logText, 'text/plain;charset=utf-8');
+    showStatus('ログを保存しました');
   }
 
-  function downloadAll() {
-    if (!state.lastBuildResult || !Array.isArray(state.lastBuildResult.outputFiles)) {
-      showStatus("保存する出力がありません");
+  async function copyOutput() {
+    if (!state.lastBuildResult || !state.lastBuildResult.outputText) {
+      showStatus('コピーする出力がありません');
       return;
     }
 
-    const files = state.lastBuildResult.outputFiles;
-
-    if (!files.length) {
-      showStatus("保存する出力がありません");
-      return;
+    try {
+      await navigator.clipboard.writeText(state.lastBuildResult.outputText);
+      showStatus('出力をコピーしました');
+    } catch (error) {
+      showStatus('コピーに失敗しました');
+      showLog(String(error && error.stack ? error.stack : error));
     }
-
-    const text = files.map(function (file) {
-      return [
-        "===== " + file.name + " =====",
-        file.content || ""
-      ].join("\n");
-    }).join("\n\n");
-
-    const projectName = state.lastBuildResult.config.projectName || "ts-output";
-    downloadByAnchor(projectName + "-bundle.txt", text, "text/plain;charset=utf-8");
-    showStatus("まとめて保存しました");
   }
 
   function bindButtons() {
-    const addFileButton = getEl("addFile");
-    const deleteFileButton = getEl("deleteFile");
-    const saveDraftButton = getEl("saveDraft");
-    const loadDraftButton = getEl("loadDraft");
-    const runBuildButton = getEl("runBuild") || getEl("runBuildButton");
-    const clearLogButton = getEl("clearLog");
-    const downloadJsButton = getEl("downloadJs");
-    const downloadLogButton = getEl("downloadLog");
-    const downloadAllButton = getEl("downloadAll");
+    const addSubFileButton = getEl('addSubFileButton');
+    const runBuildButton = getEl('runBuildButton');
+    const clearAllButton = getEl('clearAllButton');
+    const downloadOutputButton = getEl('downloadOutputButton');
+    const downloadLogButton = getEl('downloadLogButton');
+    const copyOutputButton = getEl('copyOutputButton');
 
-    if (addFileButton) addFileButton.addEventListener("click", addFile);
-
-    if (deleteFileButton) {
-      deleteFileButton.addEventListener("click", function () {
-        const active = getActiveFile();
-
-        if (!active) {
-          showStatus("現在のファイルが見つかりません");
-          return;
-        }
-
-        const index = state.files.findIndex(function (file) {
-          return file.id === active.id;
-        });
-
-        removeFile(index);
-      });
-    }
-
-    if (saveDraftButton) saveDraftButton.addEventListener("click", saveDraft);
-    if (loadDraftButton) loadDraftButton.addEventListener("click", loadDraft);
-    if (runBuildButton) runBuildButton.addEventListener("click", runBuild);
-    if (clearLogButton) clearLogButton.addEventListener("click", clearLog);
-    if (downloadJsButton) downloadJsButton.addEventListener("click", downloadJs);
-    if (downloadLogButton) downloadLogButton.addEventListener("click", downloadLog);
-    if (downloadAllButton) downloadAllButton.addEventListener("click", downloadAll);
+    if (addSubFileButton) addSubFileButton.addEventListener('click', addSubFile);
+    if (runBuildButton) runBuildButton.addEventListener('click', runBuild);
+    if (clearAllButton) clearAllButton.addEventListener('click', clearAll);
+    if (downloadOutputButton) downloadOutputButton.addEventListener('click', downloadOutput);
+    if (downloadLogButton) downloadLogButton.addEventListener('click', downloadLog);
+    if (copyOutputButton) copyOutputButton.addEventListener('click', copyOutput);
   }
 
-  function bindFileActions() {
-    const list = getEl("fileList");
+  function bindSubFileActions() {
+    const list = getEl('subFilesList');
     if (!list) return;
 
-    list.addEventListener("click", function (event) {
+    list.addEventListener('click', function (event) {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
 
-      const action = target.getAttribute("data-action");
-      const index = Number(target.getAttribute("data-index"));
+      const action = target.getAttribute('data-action');
+      const index = Number(target.getAttribute('data-index'));
 
       if (!action || Number.isNaN(index)) return;
 
-      if (action === "remove-ts-file") {
-        removeFile(index);
+      if (action === 'remove-sub-file') {
+        removeSubFile(index);
         return;
       }
 
-      if (action === "view-ts-file") {
-        viewFile(index);
+      if (action === 'view-sub-file') {
+        viewSubFile(index);
       }
     });
   }
 
   function bindNavigation() {
-    const goHome = getEl("goHome");
-    const goRustPage = getEl("goRustPage");
+    const goHome = getEl('goHome');
+    const goTsPage = getEl('goTsPage');
 
     if (goHome) {
-      goHome.addEventListener("click", function () {
-        location.href = "./index.html";
+      goHome.addEventListener('click', function () {
+        location.href = './index.html';
       });
     }
 
-    if (goRustPage) {
-      goRustPage.addEventListener("click", function () {
-        location.href = "./rust-build.html";
-      });
-    }
-  }
-
-  function bindInputSync() {
-    const input = getTsInputEl();
-
-    if (input) {
-      input.addEventListener("input", syncCurrentInputToFile);
-    }
-
-    const fileName = getEl("fileName");
-
-    if (fileName) {
-      fileName.addEventListener("change", function () {
-        const active = getActiveFile();
-
-        if (!active) return;
-
-        active.name = normalizeTsFileName(fileName.value);
-        fileName.value = active.name;
-        renderFiles();
+    if (goTsPage) {
+      goTsPage.addEventListener('click', function () {
+        location.href = './ts-build.html';
       });
     }
   }
 
   function ensureOptionalFields() {
-    if (!getEl("projectName")) console.warn("projectName フィールドが見つかりません");
-    if (!getEl("fileName")) console.warn("fileName フィールドが見つかりません");
-    if (!getEl("outputName")) console.warn("outputName フィールドが見つかりません");
-    if (!getEl("moduleMode")) console.warn("moduleMode フィールドが見つかりません");
-    if (!getEl("targetMode")) console.warn("targetMode フィールドが見つかりません");
-    if (!getTsInputEl()) console.warn("tsInput フィールドが見つかりません");
-    if (!getJsOutputEl()) console.warn("jsOutput フィールドが見つかりません");
-    if (!getLogEl()) console.warn("logOutput フィールドが見つかりません");
+    if (!getEl('version')) {
+      console.warn('version フィールドが見つかりません');
+    }
+    if (!getEl('edition')) {
+      console.warn('edition フィールドが見つかりません');
+    }
+    if (!getEl('dependenciesText')) {
+      console.warn('dependenciesText フィールドが見つかりません');
+    }
+    if (!getEl('featuresText')) {
+      console.warn('featuresText フィールドが見つかりません');
+    }
+    if (!getEl('buildSummary')) {
+      console.warn('buildSummary フィールドが見つかりません');
+    }
+    if (!getEl('downloadLogButton')) {
+      console.warn('downloadLogButton が見つかりません');
+    }
+    if (!getEl('fileOutputWasm')) {
+      console.warn('fileOutputWasm フィールドが見つかりません');
+    }
+    if (!getEl('fileOutputLoaderJs')) {
+      console.warn('fileOutputLoaderJs フィールドが見つかりません');
+    }
+    if (!getEl('fileOutputExampleJs')) {
+      console.warn('fileOutputExampleJs フィールドが見つかりません');
+    }
   }
 
   function init() {
     ensureOptionalFields();
-    createInitialFile();
     bindButtons();
-    bindFileActions();
+    bindSubFileActions();
     bindNavigation();
-    bindInputSync();
-    renderFiles();
-    showLog("");
-    showOutput("");
-    showStatus("準備完了");
+    renderSubFiles();
+    clearSeparatedOutputs();
+    showStatus('準備完了');
   }
 
   init();
