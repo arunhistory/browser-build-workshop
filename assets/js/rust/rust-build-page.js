@@ -495,10 +495,6 @@
     };
   }
 
-  function makeActionsInputText(buildRequest) {
-    return JSON.stringify(buildRequest, null, 2);
-  }
-
   function makeHowToRunText(buildRequest) {
     return [
       'GitHub Actions 手動実行手順',
@@ -619,21 +615,9 @@
     setDisabled('copyOutputButton', locked);
   }
 
-  function getBuildRunner() {
-    if (global.RustBuildController && typeof global.RustBuildController.runBuild === 'function') {
-      return global.RustBuildController;
-    }
-
-    if (global.RustBuildEngine && typeof global.RustBuildEngine.runBuild === 'function') {
-      return global.RustBuildEngine;
-    }
-
-    return null;
-  }
-
   async function runBuild() {
     if (state.isRunning) {
-      showStatus('ビルド実行中です');
+      showStatus('ビルド要求を生成中です');
       return;
     }
 
@@ -647,22 +631,7 @@
 
     try {
       const input = collectInput();
-      const runner = getBuildRunner();
-
-      let result;
-
-      if (runner) {
-        const maybeResult = runner.runBuild(input);
-        result = maybeResult && typeof maybeResult.then === 'function'
-          ? await maybeResult
-          : maybeResult;
-      } else {
-        result = makeLocalBuildRequestResult(input);
-      }
-
-      if (!result || typeof result !== 'object') {
-        throw new Error('ビルド結果が不正です。runBuild は結果オブジェクトを返す必要があります。');
-      }
+      const result = makeLocalBuildRequestResult(input);
 
       state.lastBuildResult = result;
 
@@ -672,17 +641,13 @@
       setHtml('buildSummary', result.summaryHtml || '');
 
       if (result.ok) {
-        if (result.compileKind === 'github-actions-request' || result.mode === 'github-actions-request') {
-          showStatus('GitHub Actions用JSONを生成しました');
-        } else {
-          showStatus('ビルド成功');
-        }
+        showStatus('GitHub Actions用JSONを生成しました');
       } else {
-        showStatus('ビルド失敗');
+        showStatus('入力エラーがあります');
       }
     } catch (error) {
       state.lastBuildResult = null;
-      showStatus('ビルド中に例外が発生しました');
+      showStatus('ビルド要求生成中に例外が発生しました');
       showLog(String(error && error.stack ? error.stack : error));
       showOutput('');
       clearSeparatedOutputs();
