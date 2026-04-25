@@ -17,7 +17,7 @@
   <main class="page">
     <section class="topbar">
       <div class="topbar-actions">
-        <button class="btn btn-muted" id="goHome" type="button" onclick="location.href='app/index.html'">トップへ戻る</button>
+        <button class="btn btn-muted" id="goHome" type="button">トップへ戻る</button>
         <button class="btn btn-secondary" id="goTsPage" type="button">TS変換へ</button>
       </div>
 
@@ -77,6 +77,8 @@
             <select id="crateType">
               <option value="cdylib">cdylib</option>
               <option value="rlib">rlib</option>
+              <option value="staticlib">staticlib</option>
+              <option value="dylib">dylib</option>
               <option value="bin">bin</option>
             </select>
           </div>
@@ -176,7 +178,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          入力検証、依存確認、仮想FS構築、モジュール管理、コンパイラ接続までをこのページから呼び出します。
+          このページでは GitHub Actions に投入する buildRequestJson を生成します。
+          実際の Rust → Wasm ビルドは GitHub Actions 側で実行します。
         </div>
       </article>
 
@@ -199,7 +202,7 @@ pub fn greet(name: &str) -> String {
           <label>分解表示</label>
           <div id="buildOutputFiles" class="build-output-files">
             <div class="file-output-item">
-              <label for="fileOutputWasm">〇〇.wasm</label>
+              <label for="fileOutputWasm">build-request.json</label>
               <textarea
                 id="fileOutputWasm"
                 class="output-box file-output-box"
@@ -209,7 +212,7 @@ pub fn greet(name: &str) -> String {
             </div>
 
             <div class="file-output-item">
-              <label for="fileOutputLoaderJs">〇〇.loader.js</label>
+              <label for="fileOutputLoaderJs">GitHub Actions 入力JSON</label>
               <textarea
                 id="fileOutputLoaderJs"
                 class="output-box file-output-box"
@@ -219,7 +222,7 @@ pub fn greet(name: &str) -> String {
             </div>
 
             <div class="file-output-item">
-              <label for="fileOutputExampleJs">〇〇.example.js</label>
+              <label for="fileOutputExampleJs">補助情報</label>
               <textarea
                 id="fileOutputExampleJs"
                 class="output-box file-output-box"
@@ -242,18 +245,12 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          `rust-build-module-manager.js` と `rust-real-compiler.js` を先に読み込み、
-          その上で controller と page から利用する構成です。
+          生成された JSON を GitHub Actions の buildRequestJson に貼り付けてください。
         </div>
       </article>
     </section>
   </main>
 
-  <script src="../assets/js/rust/rust-virtual-fs.js"></script>
-  <script src="../assets/js/rust/rust-dependency-manager.js"></script>
-  <script src="../assets/js/rust/rust-build-module-manager.js"></script>
-  <script src="../assets/js/rust/rust-real-compiler.js"></script>
-  <script src="../assets/js/rust/rust-build-controller.js"></script>
   <script src="../assets/js/rust/rust-build-page.js"></script>
 </body>
 </html>
