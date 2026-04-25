@@ -1,9 +1,9 @@
 (function (global) {
   'use strict';
 
-  function safeString(value, fallback = '') {
+  function safeString(value, fallback) {
     if (typeof value === 'string') return value;
-    if (value === null || value === undefined) return fallback;
+    if (value === null || value === undefined) return fallback || '';
     return String(value);
   }
 
@@ -28,98 +28,6 @@
     return normalizeLineBreaks(text).trim();
   }
 
-  function validateProjectName(name) {
-    const value = trimOrEmpty(name);
-    if (!value) return 'プロジェクト名が空です。';
-    if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
-      return 'プロジェクト名は英数字・ハイフン・アンダースコアのみ使用できます。';
-    }
-    return '';
-  }
-
-  function validateVersion(version) {
-    const value = trimOrEmpty(version);
-    if (!value) return 'version が空です。';
-    if (!/^\d+\.\d+\.\d+$/.test(value)) {
-      return 'version は 0.1.0 の形式で入力してください。';
-    }
-    return '';
-  }
-
-  function validateEdition(edition) {
-    const value = trimOrEmpty(edition);
-    const allowed = ['2015', '2018', '2021', '2024'];
-    if (!value) return 'edition が空です。';
-    if (!allowed.includes(value)) {
-      return 'edition は 2015 / 2018 / 2021 / 2024 のいずれかにしてください。';
-    }
-    return '';
-  }
-
-  function validateCrateType(crateType) {
-    const value = trimOrEmpty(crateType);
-    const allowed = ['cdylib', 'rlib', 'bin'];
-    if (!value) return 'crate-type が空です。';
-    if (!allowed.includes(value)) {
-      return 'crate-type は cdylib / rlib / bin のいずれかにしてください。';
-    }
-    return '';
-  }
-
-  function validateBuildMode(buildMode) {
-    const value = trimOrEmpty(buildMode);
-    const allowed = ['debug', 'release'];
-    if (!value) return 'ビルドモードが空です。';
-    if (!allowed.includes(value)) {
-      return 'ビルドモードは debug / release のいずれかにしてください。';
-    }
-    return '';
-  }
-
-  function validateOutputMode(outputMode) {
-    const value = trimOrEmpty(outputMode);
-    const allowed = ['wasm-js', 'wasm-only', 'js-only'];
-    if (!value) return '出力形式が空です。';
-    if (!allowed.includes(value)) {
-      return '出力形式が不正です。';
-    }
-    return '';
-  }
-
-  function inferEntryTarget(entryPoint) {
-    const value = trimOrEmpty(entryPoint).toLowerCase();
-    if (value.endsWith('main.rs')) return 'main';
-    return 'lib';
-  }
-
-  function normalizeDependencies(text) {
-    return normalizeLineBreaks(text)
-      .split('\n')
-      .map(function (line) {
-        return line.trim();
-      })
-      .filter(Boolean);
-  }
-
-  function normalizeFeatures(text) {
-    return normalizeLineBreaks(text)
-      .split('\n')
-      .map(function (line) {
-        return line.trim();
-      })
-      .filter(Boolean);
-  }
-
-  function pascalCase(value) {
-    return safeString(value)
-      .split(/[^a-zA-Z0-9]+/)
-      .filter(Boolean)
-      .map(function (part) {
-        return part.charAt(0).toUpperCase() + part.slice(1);
-      })
-      .join('') || 'RustProject';
-  }
-
   function escapeHtml(text) {
     return safeString(text)
       .replace(/&/g, '&amp;')
@@ -129,42 +37,275 @@
       .replace(/'/g, '&#39;');
   }
 
-  function collectConfig(input) {
-    const source = input || {};
+  function normalizeProjectName(name) {
+    const value = trimOrEmpty(name || 'sample-rust-project') || 'sample-rust-project';
 
-    return {
-      buildId: makeId('rust-build'),
-      timestamp: nowIso(),
-      projectName: trimOrEmpty(source.projectName || 'sample-rust-project'),
-      entryPoint: trimOrEmpty(source.entryPoint || 'lib.rs'),
-      entryTarget: inferEntryTarget(source.entryPoint || 'lib.rs'),
-      outputMode: trimOrEmpty(source.outputMode || 'wasm-js'),
-      buildMode: trimOrEmpty(source.buildMode || 'release'),
-      crateType: trimOrEmpty(source.crateType || 'cdylib'),
-      version: trimOrEmpty(source.version || '0.1.0'),
-      edition: trimOrEmpty(source.edition || '2021'),
-      dependenciesText: normalizeLineBreaks(source.dependenciesText || 'wasm-bindgen = "0.2"'),
-      featuresText: normalizeLineBreaks(source.featuresText || ''),
-      mainRustCode: normalizeLineBreaks(source.mainRustCode || ''),
-      subFiles: Array.isArray(source.subFiles) ? clone(source.subFiles) : []
-    };
+    return value
+      .toLowerCase()
+      .replace(/_/g, '-')
+      .replace(/[^a-z0-9-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || 'sample-rust-project';
   }
 
-  function validateDependenciesWithManager(config, errors, warnings) {
+  function normalizeVersion(version) {
+    const value = trimOrEmpty(version || '0.1.0');
+    return value || '0.1.0';
+  }
+
+  function normalizeEdition(edition) {
+    const value = trimOrEmpty(edition || '2021');
+    if (['2015', '2018', '2021', '2024'].includes(value)) return value;
+    return '2021';
+  }
+
+  function normalizeBuildMode(buildMode) {
+    const value = trimOrEmpty(buildMode || 'release');
+    if (value === 'debug') return 'debug';
+    return 'release';
+  }
+
+  function normalizeOutputMode(outputMode) {
+    const value = trimOrEmpty(outputMode || 'wasm-js');
+    if (value === 'wasm-only') return 'wasm-only';
+    if (value === 'js-only') return 'js-only';
+    return 'wasm-js';
+  }
+
+  function normalizeEntryPoint(entryPoint) {
+    const value = trimOrEmpty(entryPoint || 'lib.rs') || 'lib.rs';
+    const fixed = value.replace(/\\/g, '/').replace(/^\/+/, '');
+
+    if (fixed === 'lib.rs') return 'src/lib.rs';
+    if (fixed === 'main.rs') return 'src/main.rs';
+    if (fixed.startsWith('src/')) return fixed;
+
+    return 'src/' + fixed;
+  }
+
+  function inferEntryTarget(entryPoint) {
+    const value = trimOrEmpty(entryPoint).toLowerCase();
+    if (value.endsWith('main.rs')) return 'main';
+    return 'lib';
+  }
+
+  function normalizeCrateType(crateType, entryPoint) {
+    const entryTarget = inferEntryTarget(entryPoint);
+
+    if (entryTarget === 'main') {
+      return 'bin';
+    }
+
+    const value = trimOrEmpty(crateType || 'cdylib').toLowerCase();
+
+    if (['cdylib', 'rlib', 'staticlib', 'dylib'].includes(value)) {
+      return value;
+    }
+
+    return 'cdylib';
+  }
+
+  function normalizeSubFilePath(path) {
+    const value = trimOrEmpty(path).replace(/\\/g, '/').replace(/^\/+/, '');
+
+    if (!value) return '';
+    if (value.includes('..')) return '';
+    if (!value.endsWith('.rs')) return '';
+
+    if (value.startsWith('src/')) return value;
+    return 'src/' + value;
+  }
+
+  function normalizeSubFiles(subFiles) {
+    if (!Array.isArray(subFiles)) return [];
+
+    const result = [];
+    const used = new Set();
+
+    subFiles.forEach(function (file) {
+      if (!file || typeof file !== 'object') return;
+
+      const name = normalizeSubFilePath(file.name || file.path || '');
+      const content = normalizeLineBreaks(file.content || '');
+
+      if (!name) return;
+      if (!content.trim()) return;
+      if (used.has(name)) return;
+
+      used.add(name);
+
+      result.push({
+        name: name,
+        content: content
+      });
+    });
+
+    return result;
+  }
+
+  function validateProjectName(name) {
+    const value = trimOrEmpty(name);
+
+    if (!value) return 'プロジェクト名が空です。';
+
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(value)) {
+      return 'プロジェクト名は英小文字・数字・ハイフンのみで指定してください。';
+    }
+
+    return '';
+  }
+
+  function validateVersion(version) {
+    const value = trimOrEmpty(version);
+
+    if (!value) return 'version が空です。';
+
+    if (!/^\d+\.\d+\.\d+$/.test(value)) {
+      return 'version は 0.1.0 の形式で入力してください。';
+    }
+
+    return '';
+  }
+
+  function validateEdition(edition) {
+    const value = trimOrEmpty(edition);
+    const allowed = ['2015', '2018', '2021', '2024'];
+
+    if (!value) return 'edition が空です。';
+
+    if (!allowed.includes(value)) {
+      return 'edition は 2015 / 2018 / 2021 / 2024 のいずれかにしてください。';
+    }
+
+    return '';
+  }
+
+  function validateCrateType(crateType) {
+    const value = trimOrEmpty(crateType);
+    const allowed = ['cdylib', 'rlib', 'staticlib', 'dylib', 'bin'];
+
+    if (!value) return 'crate-type が空です。';
+
+    if (!allowed.includes(value)) {
+      return 'crate-type は cdylib / rlib / staticlib / dylib / bin のいずれかにしてください。';
+    }
+
+    return '';
+  }
+
+  function validateBuildMode(buildMode) {
+    const value = trimOrEmpty(buildMode);
+    const allowed = ['debug', 'release'];
+
+    if (!value) return 'ビルドモードが空です。';
+
+    if (!allowed.includes(value)) {
+      return 'ビルドモードは debug / release のいずれかにしてください。';
+    }
+
+    return '';
+  }
+
+  function validateOutputMode(outputMode) {
+    const value = trimOrEmpty(outputMode);
+    const allowed = ['wasm-js', 'wasm-only', 'js-only'];
+
+    if (!value) return '出力形式が空です。';
+
+    if (!allowed.includes(value)) {
+      return '出力形式が不正です。';
+    }
+
+    return '';
+  }
+
+  function validateDependenciesText(text, warnings) {
+    const lines = normalizeLineBreaks(text)
+      .split('\n')
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(Boolean);
+
+    lines.forEach(function (line) {
+      if (line.startsWith('#')) return;
+
+      if (!line.includes('=')) {
+        warnings.push('dependencies の形式を確認してください: ' + line);
+      }
+    });
+  }
+
+  function validateFeaturesText(text, warnings) {
+    const lines = normalizeLineBreaks(text)
+      .split('\n')
+      .map(function (line) {
+        return line.trim();
+      })
+      .filter(Boolean);
+
+    lines.forEach(function (line) {
+      if (line.startsWith('#')) return;
+
+      if (!line.includes('=')) {
+        warnings.push('features の形式を確認してください: ' + line);
+      }
+    });
+  }
+
+  function validateWithDependencyManager(config, errors, warnings) {
     if (!global.RustDependencyManager || typeof global.RustDependencyManager.validateDependencies !== 'function') {
       warnings.push('RustDependencyManager が見つからないため、依存関係検証をスキップしました。');
       return;
     }
 
-    const dependencyResult = global.RustDependencyManager.validateDependencies(config.dependenciesText);
+    try {
+      const result = global.RustDependencyManager.validateDependencies(config.dependenciesText);
 
-    if (dependencyResult && Array.isArray(dependencyResult.errors) && dependencyResult.errors.length) {
-      Array.prototype.push.apply(errors, dependencyResult.errors);
-    }
+      if (result && Array.isArray(result.errors)) {
+        Array.prototype.push.apply(errors, result.errors);
+      }
 
-    if (dependencyResult && Array.isArray(dependencyResult.warnings) && dependencyResult.warnings.length) {
-      Array.prototype.push.apply(warnings, dependencyResult.warnings);
+      if (result && Array.isArray(result.warnings)) {
+        Array.prototype.push.apply(warnings, result.warnings);
+      }
+    } catch (error) {
+      warnings.push('RustDependencyManager の検証中に例外が発生しました: ' + safeString(error && error.message ? error.message : error));
     }
+  }
+
+  function collectConfig(input) {
+    const source = input || {};
+    const entryPoint = normalizeEntryPoint(source.entryPoint || 'lib.rs');
+
+    return {
+      buildId: source.buildId || makeId('rust-build'),
+      timestamp: nowIso(),
+      projectName: normalizeProjectName(source.projectName || 'sample-rust-project'),
+      version: normalizeVersion(source.version || '0.1.0'),
+      edition: normalizeEdition(source.edition || '2021'),
+      entryPoint: entryPoint,
+      entryTarget: inferEntryTarget(entryPoint),
+      outputMode: normalizeOutputMode(source.outputMode || 'wasm-js'),
+      buildMode: normalizeBuildMode(source.buildMode || 'release'),
+      crateType: normalizeCrateType(source.crateType || 'cdylib', entryPoint),
+      dependenciesText: normalizeLineBreaks(source.dependenciesText || 'wasm-bindgen = "0.2"'),
+      featuresText: normalizeLineBreaks(source.featuresText || ''),
+      cargoTomlText: normalizeLineBreaks(source.cargoTomlText || source.cargoToml || ''),
+      mainRustCode: normalizeLineBreaks(source.mainRustCode || ''),
+      subFiles: normalizeSubFiles(source.subFiles || []),
+      flags: {
+        enableWasmBindgen: source.flags && typeof source.flags.enableWasmBindgen === 'boolean'
+          ? source.flags.enableWasmBindgen
+          : true,
+        enableOptimize: source.flags && typeof source.flags.enableOptimize === 'boolean'
+          ? source.flags.enableOptimize
+          : true,
+        enableJsLoader: source.flags && typeof source.flags.enableJsLoader === 'boolean'
+          ? source.flags.enableJsLoader
+          : true
+      }
+    };
   }
 
   function validateConfig(config) {
@@ -189,8 +330,16 @@
     const outputModeError = validateOutputMode(config.outputMode);
     if (outputModeError) errors.push(outputModeError);
 
-    if (!trimOrEmpty(config.entryPoint)) {
+    if (!config.entryPoint) {
       errors.push('エントリーポイントが空です。');
+    }
+
+    if (!config.entryPoint.endsWith('.rs')) {
+      errors.push('エントリーポイントは .rs ファイルにしてください。');
+    }
+
+    if (config.entryPoint.includes('..')) {
+      errors.push('エントリーポイントに危険なパスが含まれています。');
     }
 
     if (!trimOrEmpty(config.mainRustCode)) {
@@ -205,421 +354,222 @@
       warnings.push('lib.rs ですが wasm_bindgen の記述が見当たりません。');
     }
 
-    normalizeDependencies(config.dependenciesText).forEach(function (line) {
-      if (!line.includes('=')) {
-        warnings.push('dependencies の形式を確認してください: ' + line);
-      }
-    });
+    if (config.entryTarget === 'main' && config.crateType !== 'bin') {
+      warnings.push('main.rs のため crate-type は bin として扱われます。');
+    }
 
-    normalizeFeatures(config.featuresText).forEach(function (line) {
-      if (!line.includes('=')) {
-        warnings.push('features の形式を確認してください: ' + line);
-      }
-    });
+    if (config.outputMode === 'js-only') {
+      warnings.push('js-only は .wasm の確認には向きません。本物のwasm生成確認には wasm-js または wasm-only を使ってください。');
+    }
 
-    validateDependenciesWithManager(config, errors, warnings);
+    validateDependenciesText(config.dependenciesText, warnings);
+    validateFeaturesText(config.featuresText, warnings);
+    validateWithDependencyManager(config, errors, warnings);
 
     return {
+      ok: errors.length === 0,
       errors: errors,
       warnings: warnings
     };
   }
 
-  function buildVirtualFs(config) {
-    if (!global.RustVirtualFs || typeof global.RustVirtualFs.createVirtualFs !== 'function') {
-      return {
-        ok: false,
-        entryPath: '',
-        files: {},
-        errors: ['RustVirtualFs.createVirtualFs が見つかりません。'],
-        warnings: []
-      };
-    }
-
-    return global.RustVirtualFs.createVirtualFs(config);
+  function createBuildRequest(config) {
+    return {
+      build: {
+        buildId: config.buildId,
+        timestamp: config.timestamp,
+        projectName: config.projectName,
+        version: config.version,
+        edition: config.edition,
+        entryPoint: config.entryPoint,
+        entryTarget: config.entryTarget,
+        outputMode: config.outputMode,
+        buildMode: config.buildMode,
+        crateType: config.crateType,
+        dependenciesText: config.dependenciesText,
+        featuresText: config.featuresText,
+        cargoTomlText: config.cargoTomlText,
+        mainRustCode: config.mainRustCode,
+        subFiles: config.subFiles,
+        flags: config.flags
+      }
+    };
   }
 
-  function makeLoaderJs(config, ok) {
-    const functionName = 'load' + pascalCase(config.projectName || 'rust-project');
-
-    return [
-      '// mock loader generated by browser-build-workshop',
-      'export async function ' + functionName + '() {',
-      '  return {',
-      '    ok: ' + (ok ? 'true' : 'false') + ',',
-      '    project: ' + JSON.stringify(config.projectName) + ',',
-      '    buildId: ' + JSON.stringify(config.buildId) + ',',
-      '    mode: ' + JSON.stringify(config.buildMode),
-      '  };',
-      '}'
-    ].join('\n');
-  }
-
-  function makeExampleJs(config) {
-    const functionName = 'load' + pascalCase(config.projectName || 'rust-project');
-
-    return [
-      '// example usage',
-      "import { " + functionName + " } from './" + config.projectName + ".loader.js';",
-      '',
-      '(async function () {',
-      '  const mod = await ' + functionName + '();',
-      "  console.log('loaded module:', mod);",
-      '})();'
-    ].join('\n');
-  }
-
-  function makeMockWasm(config) {
-    return [
-      '; mock wasm placeholder',
-      '; project=' + config.projectName,
-      '; build=' + config.buildId,
-      '; mode=' + config.buildMode,
-      '; crate-type=' + config.crateType
-    ].join('\n');
-  }
-
-  function makeMockOutputFiles(config, virtualFs, validation) {
-    const files = [];
-    const baseName = config.projectName || 'rust-output';
-    const ok = validation.errors.length === 0;
-
-    files.push({
-      name: 'build-log.txt',
-      type: 'text/plain;charset=utf-8',
-      content: ''
-    });
-
-    files.push({
-      name: 'Cargo.toml',
-      type: 'text/plain;charset=utf-8',
-      content: (virtualFs.files && virtualFs.files['/Cargo.toml']) || ''
-    });
-
-    if (config.outputMode === 'wasm-js' || config.outputMode === 'wasm-only') {
-      files.push({
-        name: baseName + '.wasm',
-        type: 'application/wasm',
-        content: makeMockWasm(config)
-      });
-    }
-
-    if (config.outputMode === 'wasm-js' || config.outputMode === 'js-only') {
-      files.push({
-        name: baseName + '.loader.js',
-        type: 'application/javascript;charset=utf-8',
-        content: makeLoaderJs(config, ok)
-      });
-
-      files.push({
-        name: baseName + '.example.js',
-        type: 'application/javascript;charset=utf-8',
-        content: makeExampleJs(config)
-      });
-    }
-
-    return files;
-  }
-
-  function mergeCompileResult(config, virtualFs, compileResult, validation) {
-    const normalized = compileResult && typeof compileResult === 'object' ? compileResult : {};
-    const files = Array.isArray(normalized.outputFiles) ? clone(normalized.outputFiles) : [];
-    const errors = Array.isArray(normalized.errors) ? clone(normalized.errors) : [];
-    const warnings = Array.isArray(normalized.warnings) ? clone(normalized.warnings) : [];
-
-    if (errors.length) {
-      Array.prototype.push.apply(validation.errors, errors);
-    }
-
-    if (warnings.length) {
-      Array.prototype.push.apply(validation.warnings, warnings);
-    }
-
-    if (!files.length) {
-      return makeMockOutputFiles(config, virtualFs, validation);
-    }
-
-    const hasBuildLog = files.some(function (file) {
-      return file && file.name === 'build-log.txt';
-    });
-
-    const hasCargoToml = files.some(function (file) {
-      return file && file.name === 'Cargo.toml';
-    });
-
-    const hasLoaderJs = files.some(function (file) {
-      return file && file.name === (config.projectName + '.loader.js');
-    });
-
-    const hasExampleJs = files.some(function (file) {
-      return file && file.name === (config.projectName + '.example.js');
-    });
-
-    if (!hasBuildLog) {
-      files.unshift({
-        name: 'build-log.txt',
-        type: 'text/plain;charset=utf-8',
-        content: ''
-      });
-    }
-
-    if (!hasCargoToml) {
-      files.push({
-        name: 'Cargo.toml',
-        type: 'text/plain;charset=utf-8',
-        content: (virtualFs.files && virtualFs.files['/Cargo.toml']) || ''
-      });
-    }
-
-    if ((config.outputMode === 'wasm-js' || config.outputMode === 'js-only') && !hasLoaderJs) {
-      files.push({
-        name: config.projectName + '.loader.js',
-        type: 'application/javascript;charset=utf-8',
-        content: makeLoaderJs(config, validation.errors.length === 0)
-      });
-    }
-
-    if ((config.outputMode === 'wasm-js' || config.outputMode === 'js-only') && !hasExampleJs) {
-      files.push({
-        name: config.projectName + '.example.js',
-        type: 'application/javascript;charset=utf-8',
-        content: makeExampleJs(config)
-      });
-    }
-
-    return files;
-  }
-
-  function runCompiler(config, virtualFs) {
-    if (!global.RustRealCompiler || typeof global.RustRealCompiler.compile !== 'function') {
-      return {
-        ok: false,
-        mode: 'mock-fallback',
-        errors: [],
-        warnings: ['RustRealCompiler.compile が見つからないため、疑似出力にフォールバックしました。'],
-        outputFiles: []
-      };
-    }
-
-    try {
-      return global.RustRealCompiler.compile(
-        Object.assign({}, clone(config), {
-          virtualFs: clone(virtualFs)
-        })
-      );
-    } catch (error) {
-      return {
-        ok: false,
-        mode: 'compiler-exception',
-        errors: [
-          '本番コンパイル処理で例外が発生しました: ' + safeString(error && error.message ? error.message : error)
-        ],
-        warnings: [],
-        outputFiles: []
-      };
-    }
-  }
-
-  function makeLogText(config, virtualFs, validation, compileMeta) {
+  function makeLogText(config, validation) {
     const lines = [];
 
-    lines.push('Rustビルドを開始しました。');
+    lines.push('Rust本物ビルド用の buildRequestJson を生成しました。');
+    lines.push('');
     lines.push('build id: ' + config.buildId);
     lines.push('timestamp: ' + config.timestamp);
     lines.push('project: ' + config.projectName);
+    lines.push('version: ' + config.version);
+    lines.push('edition: ' + config.edition);
     lines.push('entry: ' + config.entryPoint);
     lines.push('entry target: ' + config.entryTarget);
     lines.push('build mode: ' + config.buildMode);
     lines.push('crate type: ' + config.crateType);
     lines.push('output mode: ' + config.outputMode);
+    lines.push('sub files: ' + String(config.subFiles.length));
     lines.push('');
 
-    lines.push('compile mode: ' + safeString(compileMeta.mode || 'unknown'));
-    lines.push('compiler connected: ' + String(!!compileMeta.connected));
-    lines.push('');
-
-    lines.push('virtual fs:');
-    Object.keys(virtualFs.files || {}).sort().forEach(function (path) {
-      lines.push('- ' + path);
-    });
-
-    lines.push('');
-
+    lines.push('errors:');
     if (validation.errors.length) {
-      lines.push('errors:');
       validation.errors.forEach(function (item) {
         lines.push('- ' + item);
       });
     } else {
-      lines.push('errors:');
       lines.push('- なし');
     }
 
     lines.push('');
 
+    lines.push('warnings:');
     if (validation.warnings.length) {
-      lines.push('warnings:');
       validation.warnings.forEach(function (item) {
         lines.push('- ' + item);
       });
     } else {
-      lines.push('warnings:');
       lines.push('- なし');
     }
 
-    return lines.join('\n');
-  }
-
-  function makeReadableOutput(config, virtualFs, validation, outputFiles, compileMeta) {
-    const lines = [];
-
-    lines.push('// Rust build result');
-    lines.push('// build id: ' + config.buildId);
-    lines.push('// project: ' + config.projectName);
-    lines.push('// entry: ' + config.entryPoint);
-    lines.push('// build mode: ' + config.buildMode);
-    lines.push('// crate type: ' + config.crateType);
-    lines.push('// output mode: ' + config.outputMode);
-    lines.push('// compile mode: ' + safeString(compileMeta.mode || 'unknown'));
-    lines.push('// compiler connected: ' + String(!!compileMeta.connected));
-    lines.push('// status: ' + (validation.errors.length ? 'error' : 'success'));
     lines.push('');
-
-    lines.push('// generated files');
-    outputFiles.forEach(function (file) {
-      lines.push('// - ' + file.name);
-    });
-
-    lines.push('');
-    lines.push('// Cargo.toml');
-    lines.push((virtualFs.files && virtualFs.files['/Cargo.toml']) || '');
-
-    Object.keys(virtualFs.files || {})
-      .sort()
-      .filter(function (path) {
-        return path !== '/Cargo.toml';
-      })
-      .forEach(function (path) {
-        lines.push('');
-        lines.push('// file: ' + path);
-        lines.push(virtualFs.files[path]);
-      });
-
-    if (validation.errors.length) {
-      lines.push('');
-      lines.push('// errors');
-      validation.errors.forEach(function (item) {
-        lines.push('// - ' + item);
-      });
-    }
-
-    if (validation.warnings.length) {
-      lines.push('');
-      lines.push('// warnings');
-      validation.warnings.forEach(function (item) {
-        lines.push('// - ' + item);
-      });
-    }
+    lines.push('result: ' + (validation.ok ? 'GitHub Actions投入準備完了' : '入力エラーあり'));
 
     return lines.join('\n');
   }
 
-  function buildSummaryHtml(config, validation, outputFiles, virtualFs, compileMeta) {
+  function makeHowToRunText(buildRequest) {
+    return [
+      'GitHub Actions 手動実行手順',
+      '',
+      '1. GitHub の対象リポジトリを開く',
+      '2. Actions を開く',
+      '3. Rust Wasm Build を選ぶ',
+      '4. Run workflow を押す',
+      '5. buildRequestJson に、このJSONをそのまま貼り付ける',
+      '6. 実行後、Artifacts から rust-wasm-build をダウンロードする',
+      '',
+      '重要:',
+      '- このページは .wasm を偽生成しません。',
+      '- 本物の Rust コンパイルは GitHub Actions 側で行います。',
+      '- GitHub Pages に個人アクセストークンを埋め込む方式は危険なので採用しません。',
+      '',
+      'buildRequestJson:',
+      JSON.stringify(buildRequest, null, 2)
+    ].join('\n');
+  }
+
+  function makeSummaryHtml(config, validation) {
     function makeList(items) {
       if (!items.length) return '<p>なし</p>';
+
       return '<ul>' + items.map(function (item) {
         return '<li>' + escapeHtml(item) + '</li>';
       }).join('') + '</ul>';
     }
 
-    const paths = Object.keys(virtualFs.files || {}).sort();
-
     return [
       '<div class="rust-build-summary">',
+      '<p><strong>状態:</strong> ' + escapeHtml(validation.ok ? 'GitHub Actions投入準備完了' : '入力エラーあり') + '</p>',
       '<p><strong>ビルドID:</strong> ' + escapeHtml(config.buildId) + '</p>',
-      '<p><strong>状態:</strong> ' + escapeHtml(validation.errors.length ? 'error' : 'success') + '</p>',
       '<p><strong>プロジェクト:</strong> ' + escapeHtml(config.projectName) + '</p>',
+      '<p><strong>version:</strong> ' + escapeHtml(config.version) + '</p>',
+      '<p><strong>edition:</strong> ' + escapeHtml(config.edition) + '</p>',
       '<p><strong>entry:</strong> ' + escapeHtml(config.entryPoint) + '</p>',
       '<p><strong>crate-type:</strong> ' + escapeHtml(config.crateType) + '</p>',
       '<p><strong>build-mode:</strong> ' + escapeHtml(config.buildMode) + '</p>',
       '<p><strong>output-mode:</strong> ' + escapeHtml(config.outputMode) + '</p>',
-      '<p><strong>compile-mode:</strong> ' + escapeHtml(safeString(compileMeta.mode || 'unknown')) + '</p>',
-      '<p><strong>compiler-connected:</strong> ' + escapeHtml(String(!!compileMeta.connected)) + '</p>',
-      '<h4>仮想FS</h4>',
-      makeList(paths),
       '<h4>エラー</h4>',
       makeList(validation.errors),
       '<h4>警告</h4>',
       makeList(validation.warnings),
-      '<h4>生成ファイル</h4>',
-      makeList(outputFiles.map(function (file) { return file.name; })),
+      '<h4>次の操作</h4>',
+      '<p>生成された JSON を GitHub Actions の buildRequestJson に貼り付けて実行してください。</p>',
       '</div>'
     ].join('');
   }
 
-  function buildOutputFileMap(config, outputFiles) {
-    const map = {
-      buildLog: {
+  function makeOutputFiles(config, validation, buildRequest, logText) {
+    const jsonText = JSON.stringify(buildRequest, null, 2);
+    const howToRunText = makeHowToRunText(buildRequest);
+
+    return [
+      {
+        name: 'build-request.json',
+        type: 'application/json;charset=utf-8',
+        content: jsonText
+      },
+      {
+        name: 'github-actions-input.txt',
+        type: 'text/plain;charset=utf-8',
+        content: jsonText
+      },
+      {
+        name: 'how-to-run.txt',
+        type: 'text/plain;charset=utf-8',
+        content: howToRunText
+      },
+      {
         name: 'build-log.txt',
-        content: 'まだ生成されていません。'
-      },
-      cargoToml: {
-        name: 'Cargo.toml',
-        content: 'まだ生成されていません。'
-      },
+        type: 'text/plain;charset=utf-8',
+        content: logText
+      }
+    ];
+  }
+
+  function buildOutputFileMap(outputFiles) {
+    const map = {
       wasm: {
-        name: config.projectName + '.wasm',
+        name: 'build-request.json',
         content: 'まだ生成されていません。'
       },
       loaderJs: {
-        name: config.projectName + '.loader.js',
+        name: 'github-actions-input.txt',
         content: 'まだ生成されていません。'
       },
       exampleJs: {
-        name: config.projectName + '.example.js',
+        name: 'how-to-run.txt',
+        content: 'まだ生成されていません。'
+      },
+      buildLog: {
+        name: 'build-log.txt',
         content: 'まだ生成されていません。'
       }
     };
 
-    (Array.isArray(outputFiles) ? outputFiles : []).forEach(function (file) {
+    outputFiles.forEach(function (file) {
       if (!file || !file.name) return;
+
+      if (file.name === 'build-request.json') {
+        map.wasm = {
+          name: file.name,
+          content: safeString(file.content)
+        };
+        return;
+      }
+
+      if (file.name === 'github-actions-input.txt') {
+        map.loaderJs = {
+          name: file.name,
+          content: safeString(file.content)
+        };
+        return;
+      }
+
+      if (file.name === 'how-to-run.txt') {
+        map.exampleJs = {
+          name: file.name,
+          content: safeString(file.content)
+        };
+        return;
+      }
 
       if (file.name === 'build-log.txt') {
         map.buildLog = {
           name: file.name,
-          content: safeString(file.content, '')
-        };
-        return;
-      }
-
-      if (file.name === 'Cargo.toml') {
-        map.cargoToml = {
-          name: file.name,
-          content: safeString(file.content, '')
-        };
-        return;
-      }
-
-      if (file.name.endsWith('.wasm')) {
-        map.wasm = {
-          name: file.name,
-          content: safeString(file.content, '')
-        };
-        return;
-      }
-
-      if (file.name.endsWith('.loader.js')) {
-        map.loaderJs = {
-          name: file.name,
-          content: safeString(file.content, '')
-        };
-        return;
-      }
-
-      if (file.name.endsWith('.example.js')) {
-        map.exampleJs = {
-          name: file.name,
-          content: safeString(file.content, '')
+          content: safeString(file.content)
         };
       }
     });
@@ -630,53 +580,37 @@
   function runBuild(input) {
     const config = collectConfig(input);
     const validation = validateConfig(config);
-    const virtualFs = buildVirtualFs(config);
-
-    Array.prototype.push.apply(validation.errors, virtualFs.errors || []);
-    Array.prototype.push.apply(validation.warnings, virtualFs.warnings || []);
-
-    const compileResult = runCompiler(config, virtualFs);
-    const compileMeta = {
-      connected: !!(global.RustRealCompiler && typeof global.RustRealCompiler.compile === 'function'),
-      mode: safeString(compileResult.mode || 'unknown')
-    };
-
-    const outputFiles = mergeCompileResult(config, virtualFs, compileResult, validation);
-    const logText = makeLogText(config, virtualFs, validation, compileMeta);
-
-    for (var i = 0; i < outputFiles.length; i += 1) {
-      if (outputFiles[i] && outputFiles[i].name === 'build-log.txt') {
-        outputFiles[i].content = logText;
-      }
-    }
-
-    const outputText = makeReadableOutput(config, virtualFs, validation, outputFiles, compileMeta);
-    const summaryHtml = buildSummaryHtml(config, validation, outputFiles, virtualFs, compileMeta);
-    const outputFileMap = buildOutputFileMap(config, outputFiles);
+    const buildRequest = createBuildRequest(config);
+    const logText = makeLogText(config, validation);
+    const outputText = JSON.stringify(buildRequest, null, 2);
+    const outputFiles = makeOutputFiles(config, validation, buildRequest, logText);
+    const outputFileMap = buildOutputFileMap(outputFiles);
+    const summaryHtml = makeSummaryHtml(config, validation);
 
     return {
-      ok: validation.errors.length === 0,
+      ok: validation.ok,
       buildId: config.buildId,
       timestamp: config.timestamp,
-      status: validation.errors.length === 0 ? 'success' : 'error',
+      status: validation.ok ? 'ready' : 'error',
+      mode: 'github-actions-request',
+      compileKind: 'github-actions-request',
       config: clone(config),
-      virtualFs: clone(virtualFs),
+      buildRequest: clone(buildRequest),
       errors: clone(validation.errors),
       warnings: clone(validation.warnings),
       outputFiles: clone(outputFiles),
       outputFileMap: clone(outputFileMap),
       logText: logText,
       outputText: outputText,
-      summaryHtml: summaryHtml,
-      compileMeta: clone(compileMeta)
+      summaryHtml: summaryHtml
     };
   }
 
   global.RustBuildController = {
     collectConfig: collectConfig,
     validateConfig: validateConfig,
+    createBuildRequest: createBuildRequest,
     runBuild: runBuild,
-    runCompiler: runCompiler,
     buildOutputFileMap: buildOutputFileMap
   };
 })(window);
