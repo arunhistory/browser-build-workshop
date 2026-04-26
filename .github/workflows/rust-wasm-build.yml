@@ -42,14 +42,20 @@ jobs:
           node --version
           wasm-bindgen --version
 
-      - name: Run Rust Wasm build
+      - name: Write build request
         env:
           BUILD_REQUEST_JSON: ${{ inputs.buildRequestJson }}
+        run: |
+          printf '%s' "$BUILD_REQUEST_JSON" > build-request.json
+          echo "build-request.json created"
+          cat build-request.json
+
+      - name: Run Rust Wasm build
         run: node tools/build-rust-wasm.mjs
 
       - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rust-wasm-build
-          path: .generated/dist
+          path: dist
           if-no-files-found: error
