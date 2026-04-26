@@ -183,14 +183,26 @@
     }
   }
 
-  function clearSeparatedOutputs() {
-    setLabelTextByFor('fileOutputWasm', 'build-request.json');
-    setLabelTextByFor('fileOutputLoaderJs', 'GitHub Actions 入力JSON');
-    setLabelTextByFor('fileOutputExampleJs', '補助情報');
+  function getExpectedArtifactNames(projectName) {
+    const baseName = normalizeProjectName(projectName || safeValue('projectName', 'sample-rust-project'));
 
-    setTextareaOrText('fileOutputWasm', 'まだ生成されていません。');
-    setTextareaOrText('fileOutputLoaderJs', 'まだ生成されていません。');
-    setTextareaOrText('fileOutputExampleJs', 'まだ生成されていません。');
+    return {
+      wasm: baseName + '.wasm',
+      loaderJs: baseName + '.loader.js',
+      exampleJs: baseName + '.example.js'
+    };
+  }
+
+  function clearSeparatedOutputs() {
+    const names = getExpectedArtifactNames();
+
+    setLabelTextByFor('fileOutputWasm', names.wasm);
+    setLabelTextByFor('fileOutputLoaderJs', names.loaderJs);
+    setLabelTextByFor('fileOutputExampleJs', names.exampleJs);
+
+    setTextareaOrText('fileOutputWasm', 'GitHub Actions 実行後、Artifacts から取得する .wasm 本体です。');
+    setTextareaOrText('fileOutputLoaderJs', 'GitHub Actions 実行後、Artifacts から取得する読み込み用 JavaScript です。');
+    setTextareaOrText('fileOutputExampleJs', 'GitHub Actions 実行後、Artifacts から取得する使用例 JavaScript です。');
   }
 
   function findOutputFileByExt(outputFiles, ext) {
@@ -206,95 +218,40 @@
   }
 
   function splitOutputFiles(result) {
-    const outputFileMap = result && result.outputFileMap && typeof result.outputFileMap === 'object'
-      ? result.outputFileMap
-      : null;
-
-    if (outputFileMap) {
-      setLabelTextByFor(
-        'fileOutputWasm',
-        outputFileMap.wasm && outputFileMap.wasm.name ? outputFileMap.wasm.name : 'build-request.json'
-      );
-
-      setLabelTextByFor(
-        'fileOutputLoaderJs',
-        outputFileMap.loaderJs && outputFileMap.loaderJs.name ? outputFileMap.loaderJs.name : 'GitHub Actions 入力JSON'
-      );
-
-      setLabelTextByFor(
-        'fileOutputExampleJs',
-        outputFileMap.exampleJs && outputFileMap.exampleJs.name ? outputFileMap.exampleJs.name : '補助情報'
-      );
-
-      setTextareaOrText(
-        'fileOutputWasm',
-        outputFileMap.wasm && typeof outputFileMap.wasm.content === 'string'
-          ? outputFileMap.wasm.content
-          : 'まだ生成されていません。'
-      );
-
-      setTextareaOrText(
-        'fileOutputLoaderJs',
-        outputFileMap.loaderJs && typeof outputFileMap.loaderJs.content === 'string'
-          ? outputFileMap.loaderJs.content
-          : 'まだ生成されていません。'
-      );
-
-      setTextareaOrText(
-        'fileOutputExampleJs',
-        outputFileMap.exampleJs && typeof outputFileMap.exampleJs.content === 'string'
-          ? outputFileMap.exampleJs.content
-          : 'まだ生成されていません。'
-      );
-
-      return;
-    }
-
     const outputFiles = Array.isArray(result && result.outputFiles) ? result.outputFiles : [];
+    const projectName = result && result.config && result.config.projectName
+      ? result.config.projectName
+      : safeValue('projectName', 'sample-rust-project');
 
-    const buildRequestFile = outputFiles.find(function (file) {
-      return file && file.name === 'build-request.json';
-    });
-
-    const actionsInputFile = outputFiles.find(function (file) {
-      return file && file.name === 'github-actions-input.txt';
-    });
-
-    const helpFile = outputFiles.find(function (file) {
-      return file && file.name === 'how-to-run.txt';
-    });
+    const names = getExpectedArtifactNames(projectName);
 
     const wasmFile = findOutputFileByExt(outputFiles, '.wasm');
     const loaderJsFile = findOutputFileByExt(outputFiles, '.loader.js');
     const exampleJsFile = findOutputFileByExt(outputFiles, '.example.js');
 
-    const firstBox = buildRequestFile || wasmFile;
-    const secondBox = actionsInputFile || loaderJsFile;
-    const thirdBox = helpFile || exampleJsFile;
-
-    setLabelTextByFor('fileOutputWasm', firstBox ? firstBox.name : 'build-request.json');
-    setLabelTextByFor('fileOutputLoaderJs', secondBox ? secondBox.name : 'GitHub Actions 入力JSON');
-    setLabelTextByFor('fileOutputExampleJs', thirdBox ? thirdBox.name : '補助情報');
+    setLabelTextByFor('fileOutputWasm', wasmFile ? wasmFile.name : names.wasm);
+    setLabelTextByFor('fileOutputLoaderJs', loaderJsFile ? loaderJsFile.name : names.loaderJs);
+    setLabelTextByFor('fileOutputExampleJs', exampleJsFile ? exampleJsFile.name : names.exampleJs);
 
     setTextareaOrText(
       'fileOutputWasm',
-      firstBox && typeof firstBox.content === 'string'
-        ? firstBox.content
-        : 'まだ生成されていません。'
+      wasmFile && typeof wasmFile.content === 'string'
+        ? wasmFile.content
+        : 'このページでは .wasm 本体はまだ生成されません。GitHub Actions 実行後、Artifacts から取得します。'
     );
 
     setTextareaOrText(
       'fileOutputLoaderJs',
-      secondBox && typeof secondBox.content === 'string'
-        ? secondBox.content
-        : 'まだ生成されていません。'
+      loaderJsFile && typeof loaderJsFile.content === 'string'
+        ? loaderJsFile.content
+        : 'このページでは loader.js 本体はまだ生成されません。GitHub Actions 実行後、Artifacts から取得します。'
     );
 
     setTextareaOrText(
       'fileOutputExampleJs',
-      thirdBox && typeof thirdBox.content === 'string'
-        ? thirdBox.content
-        : 'まだ生成されていません。'
+      exampleJsFile && typeof exampleJsFile.content === 'string'
+        ? exampleJsFile.content
+        : 'このページでは example.js 本体はまだ生成されません。GitHub Actions 実行後、Artifacts から取得します。'
     );
   }
 
@@ -521,6 +478,7 @@
     const buildRequest = createBuildRequest(input);
     const jsonText = JSON.stringify(buildRequest, null, 2);
     const howToRunText = makeHowToRunText(buildRequest);
+    const names = getExpectedArtifactNames(input.projectName);
 
     const logLines = [];
 
@@ -533,6 +491,11 @@
     logLines.push('buildMode: ' + input.buildMode);
     logLines.push('crateType: ' + input.crateType);
     logLines.push('outputMode: ' + input.outputMode);
+    logLines.push('');
+    logLines.push('expectedArtifacts:');
+    logLines.push('- ' + names.wasm);
+    logLines.push('- ' + names.loaderJs);
+    logLines.push('- ' + names.exampleJs);
     logLines.push('');
 
     logLines.push('errors:');
@@ -580,6 +543,7 @@
       '<p><strong>entry:</strong> ' + escapeHtml(input.entryPoint) + '</p>',
       '<p><strong>build-mode:</strong> ' + escapeHtml(input.buildMode) + '</p>',
       '<p><strong>output-mode:</strong> ' + escapeHtml(input.outputMode) + '</p>',
+      '<p><strong>想定成果物:</strong> ' + escapeHtml(names.wasm) + ' / ' + escapeHtml(names.loaderJs) + ' / ' + escapeHtml(names.exampleJs) + '</p>',
       '<p><strong>次の操作:</strong> GitHub Actions の buildRequestJson 入力欄へ JSON を貼り付けて実行してください。</p>',
       '</div>'
     ].join('');
@@ -595,11 +559,6 @@
       errors: validation.errors,
       warnings: validation.warnings,
       outputFiles: outputFiles,
-      outputFileMap: {
-        wasm: outputFiles[0],
-        loaderJs: outputFiles[1],
-        exampleJs: outputFiles[2]
-      },
       logText: logLines.join('\n'),
       outputText: jsonText,
       summaryHtml: summaryHtml
