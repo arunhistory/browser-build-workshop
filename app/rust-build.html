@@ -24,9 +24,9 @@
       <div class="title-box">
         <h1>Rust Build</h1>
         <p>
-          Rust を Wasm へ向けて整えるビルド作業ページ。
+          Rust を Wasm へ変換するためのビルド作業ページ。
           GitHub Actions に投入する buildRequestJson を生成し、
-          実行後の成果物として .wasm と読み込み用 JavaScript を扱います。
+          実行後の成果物として ZIP と 〇〇.embedded-loader.js を扱います。
         </p>
       </div>
     </section>
@@ -191,46 +191,43 @@ pub fn greet(name: &str) -> String {
 
         <div class="field">
           <label for="buildLog">ビルドログ</label>
-          <textarea id="buildLog" class="log-box" spellcheck="false" readonly>まだ実行されていません。</textarea>
+          <textarea
+            id="buildLog"
+            class="log-box"
+            spellcheck="false"
+            readonly
+          >まだ実行されていません。</textarea>
         </div>
 
         <div class="field">
-          <label for="buildOutput">buildRequestJson</label>
-          <textarea id="buildOutput" class="output-box" spellcheck="false" readonly>まだ出力はありません。</textarea>
+          <label for="buildOutput">出力内容</label>
+          <textarea
+            id="buildOutput"
+            class="output-box"
+            spellcheck="false"
+            readonly
+          >まだ出力はありません。</textarea>
         </div>
 
         <div class="field">
-          <label>成果物分解表示</label>
-          <div id="buildOutputFiles" class="build-output-files">
-            <div class="file-output-item">
-              <label for="fileOutputWasm">〇〇.wasm</label>
-              <textarea
-                id="fileOutputWasm"
-                class="output-box file-output-box"
-                spellcheck="false"
-                readonly
-              >まだ生成されていません。</textarea>
-            </div>
+          <label for="embeddedLoaderOutput" id="embeddedLoaderLabel">〇〇.embedded-loader.js</label>
+          <textarea
+            id="embeddedLoaderOutput"
+            class="output-box file-output-box"
+            spellcheck="false"
+            readonly
+          >GitHub Actions 実行後、ここに 〇〇.embedded-loader.js の内容を表示します。</textarea>
+        </div>
 
-            <div class="file-output-item">
-              <label for="fileOutputLoaderJs">〇〇.loader.js</label>
-              <textarea
-                id="fileOutputLoaderJs"
-                class="output-box file-output-box"
-                spellcheck="false"
-                readonly
-              >まだ生成されていません。</textarea>
-            </div>
-
-            <div class="file-output-item">
-              <label for="fileOutputExampleJs">〇〇.example.js</label>
-              <textarea
-                id="fileOutputExampleJs"
-                class="output-box file-output-box"
-                spellcheck="false"
-                readonly
-              >まだ生成されていません。</textarea>
-            </div>
+        <div class="field">
+          <label>ZIPダウンロード</label>
+          <div class="button-row">
+            <button class="btn btn-muted" id="downloadZipButton" type="button">
+              ZIPをダウンロード
+            </button>
+          </div>
+          <div class="notice" id="zipNotice">
+            ZIPには .wasm、wasm-base64.txt、wasm-bindgen JS、loader.js、embedded-loader.js、build-log.txt を入れます。
           </div>
         </div>
 
@@ -242,12 +239,13 @@ pub fn greet(name: &str) -> String {
         <div class="button-row">
           <button class="btn btn-muted" id="downloadOutputButton" type="button">出力を保存</button>
           <button class="btn btn-muted" id="downloadLogButton" type="button">ログを保存</button>
-          <button class="btn btn-muted" id="copyOutputButton" type="button">JSONをコピー</button>
+          <button class="btn btn-muted" id="copyOutputButton" type="button">出力をコピー</button>
+          <button class="btn btn-muted" id="copyEmbeddedLoaderButton" type="button">embedded-loader.jsをコピー</button>
         </div>
 
         <div class="notice">
-          ここで生成した JSON を GitHub Actions の buildRequestJson に貼り付けます。
-          Actions 実行後、Artifacts 内に .wasm と読み込み用 JavaScript が生成されます。
+          表示する成果物は 〇〇.embedded-loader.js のみに絞ります。
+          .wasm本体とbase64はZIP内に保存し、画面表示では扱いません。
         </div>
       </article>
     </section>
