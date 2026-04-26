@@ -25,7 +25,8 @@
         <h1>Rust Build</h1>
         <p>
           Rust を Wasm へ向けて整えるビルド作業ページ。
-          複数ファイル、Cargo相当設定、仮想FS、出力管理まで見据えた土台。
+          GitHub Actions に投入する buildRequestJson を生成し、
+          実行後の成果物として .wasm と読み込み用 JavaScript を扱います。
         </p>
       </div>
     </section>
@@ -39,7 +40,7 @@
           <input
             type="text"
             id="projectName"
-            placeholder="例: sample-rust-project"
+            placeholder="例: index"
             value="sample-rust-project"
           />
         </div>
@@ -173,7 +174,7 @@ pub fn greet(name: &str) -> String {
 
         <div class="button-row">
           <button class="btn btn-secondary" id="addSubFileButton" type="button">補助ファイルを追加</button>
-          <button class="btn btn-primary" id="runBuildButton" type="button">ビルドを実行</button>
+          <button class="btn btn-primary" id="runBuildButton" type="button">ビルドJSONを生成</button>
           <button class="btn btn-danger" id="clearAllButton" type="button">入力を初期化</button>
         </div>
 
@@ -194,15 +195,15 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="field">
-          <label for="buildOutput">出力内容</label>
+          <label for="buildOutput">buildRequestJson</label>
           <textarea id="buildOutput" class="output-box" spellcheck="false" readonly>まだ出力はありません。</textarea>
         </div>
 
         <div class="field">
-          <label>分解表示</label>
+          <label>成果物分解表示</label>
           <div id="buildOutputFiles" class="build-output-files">
             <div class="file-output-item">
-              <label for="fileOutputWasm">build-request.json</label>
+              <label for="fileOutputWasm">〇〇.wasm</label>
               <textarea
                 id="fileOutputWasm"
                 class="output-box file-output-box"
@@ -212,7 +213,7 @@ pub fn greet(name: &str) -> String {
             </div>
 
             <div class="file-output-item">
-              <label for="fileOutputLoaderJs">GitHub Actions 入力JSON</label>
+              <label for="fileOutputLoaderJs">〇〇.loader.js</label>
               <textarea
                 id="fileOutputLoaderJs"
                 class="output-box file-output-box"
@@ -222,7 +223,7 @@ pub fn greet(name: &str) -> String {
             </div>
 
             <div class="file-output-item">
-              <label for="fileOutputExampleJs">補助情報</label>
+              <label for="fileOutputExampleJs">〇〇.example.js</label>
               <textarea
                 id="fileOutputExampleJs"
                 class="output-box file-output-box"
@@ -241,11 +242,12 @@ pub fn greet(name: &str) -> String {
         <div class="button-row">
           <button class="btn btn-muted" id="downloadOutputButton" type="button">出力を保存</button>
           <button class="btn btn-muted" id="downloadLogButton" type="button">ログを保存</button>
-          <button class="btn btn-muted" id="copyOutputButton" type="button">出力をコピー</button>
+          <button class="btn btn-muted" id="copyOutputButton" type="button">JSONをコピー</button>
         </div>
 
         <div class="notice">
-          生成された JSON を GitHub Actions の buildRequestJson に貼り付けてください。
+          ここで生成した JSON を GitHub Actions の buildRequestJson に貼り付けます。
+          Actions 実行後、Artifacts 内に .wasm と読み込み用 JavaScript が生成されます。
         </div>
       </article>
     </section>
