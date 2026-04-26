@@ -8,54 +8,300 @@ on:
         required: true
         type: string
 
-permissions:
-  contents: read
-  actions: read
-
 jobs:
   build:
-    name: Build Rust to Wasm
     runs-on: ubuntu-latest
-    timeout-minutes: 30
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust stable
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install wasm-bindgen CLI
-        run: cargo install wasm-bindgen-cli
-
-      - name: Show tool versions
+      - name: Install Rust target
         run: |
-          rustc --version
-          cargo --version
-          node --version
-          wasm-bindgen --version
+          rustup target add wasm32-unknown-unknown
 
-      - name: Write build request
-        env:
-          BUILD_REQUEST_JSON: ${{ inputs.buildRequestJson }}
+      - name: Install wasm-bindgen-cli
         run: |
-          printf '%s' "$BUILD_REQUEST_JSON" > build-request.json
-          echo "build-request.json created"
-          cat build-request.json
+          cargo install wasm-bindgen-cli --locked
 
-      - name: Run Rust Wasm build
-        run: node tools/build-rust-wasm.mjs
+      - name: Prepare working directory
+        run: |
+          rm -rf rust-wasm-work
+          mkdir -p rust-wasm-work/src
+          mkdir -p rust-wasm-output
 
-      - name: Upload generated artifacts
+      - name: Save build request
+        run: |
+          cat > rust-wasm-output/build-request.json <<'EOF'
+          ${{ inputs.buildRequestJson }}
+          EOF
+
+      - name: Generate Rust project
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const requestText = fs.readFileSync('rust-wasm-output/build-request.json', 'utf8');
+          const request = JSON.parse(requestText);
+          const build = request.build || {};
+
+          const projectName = String(build.projectName || 'sample-rust-project')
+            .toLowerCase()
+            .replace(/_/g, '-')
+            .replace(/[^a-z0-9-]/g, '-')
+            .replace(/-+/g, '-')
+            .replace(/^-|-$/g, '') || 'sample-rust-project';
+
+          const version = build.version || '0.1.0';
+          const edition = build.edition || '2021';
+          const crateType = build.crateType || 'cdylib';
+          const entryPoint = build.entryPoint || 'src/lib.rs';
+          const dependenciesText = build.dependenciesText || 'wasm-bindgen = "0.2"';
+          const featuresText = build.featuresText || '';
+          const mainRustCode = build.mainRustCode || '';
+          const subFiles = Array.isArray(build.subFiles) ? build.subFiles : [];
+
+          function safeRustPath(input) {
+            let value = String(input || '').replace(/\\/g, '/').replace(/^\/+/, '');
+            if (!value) return '';
+            if (value.includes('..')) return '';
+            if (!value.startsWith('src/')) value = 'src/' + value;
+            return value;
+          }
+
+          const cargoToml = [
+            '[package]',
+            `name = "${projectName}"`,
+            `version = "${version}"`,
+            `edition = "${edition}"`,
+            '',
+            '[lib]',
+            `crate-type = ["${crateType === 'bin' ? 'cdylib' : crateType}"]`,
+            '',
+            '[dependencies]',
+            dependenciesText.trim(),
+            '',
+            featuresText.trim() ? '[features]' : '',
+            featuresText.trim()
+          ].filter(Boolean).join('\n');
+
+          fs.writeFileSync('rust-wasm-work/Cargo.toml', cargoToml);
+
+          const mainPath = safeRustPath(entryPoint);
+          if (!mainPath.endsWith('.rs')) {
+            throw new Error('entryPoint must be .rs');
+          }
+
+          fs.mkdirSync(path.dirname(path.join('rust-wasm-work', mainPath)), { recursive: true });
+          fs.writeFileSync(path.join('rust-wasm-work', mainPath), mainRustCode);
+
+          for (const file of subFiles) {
+            const filePath = safeRustPath(file.name);
+            if (!filePath || !filePath.endsWith('.rs')) continue;
+
+            const fullPath = path.join('rust-wasm-work', filePath);
+            fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+            fs.writeFileSync(fullPath, file.content || '');
+          }
+
+          fs.writeFileSync('rust-wasm-output/project-name.txt', projectName);
+          NODE
+
+      - name: Build wasm
+        run: |
+          set +e
+
+          PROJECT_NAME="$(cat rust-wasm-output/project-name.txt)"
+
+          {
+            echo "Rust Wasm Build Log"
+            echo ""
+            echo "projectName: ${PROJECT_NAME}"
+            echo "startedAt: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            echo ""
+            echo "===== cargo build ====="
+            cd rust-wasm-work
+            cargo build --release --target wasm32-unknown-unknown
+            BUILD_EXIT_CODE=$?
+            echo ""
+            echo "cargo build exit code: ${BUILD_EXIT_CODE}"
+            exit ${BUILD_EXIT_CODE}
+          } > rust-wasm-output/build-log.txt 2>&1
+
+      - name: Run wasm-bindgen
+        run: |
+          set +e
+
+          PROJECT_NAME="$(cat rust-wasm-output/project-name.txt)"
+          CRATE_FILE_NAME="$(echo "${PROJECT_NAME}" | tr '-' '_')"
+
+          INPUT_WASM="rust-wasm-work/target/wasm32-unknown-unknown/release/${CRATE_FILE_NAME}.wasm"
+
+          {
+            echo ""
+            echo "===== wasm-bindgen ====="
+            echo "inputWasm: ${INPUT_WASM}"
+
+            if [ ! -f "${INPUT_WASM}" ]; then
+              echo "ERROR: wasm file not found."
+              echo "searched: ${INPUT_WASM}"
+              exit 1
+            fi
+
+            wasm-bindgen "${INPUT_WASM}" \
+              --target web \
+              --out-dir rust-wasm-bindgen \
+              --out-name "${PROJECT_NAME}"
+
+            BINDGEN_EXIT_CODE=$?
+            echo "wasm-bindgen exit code: ${BINDGEN_EXIT_CODE}"
+            exit ${BINDGEN_EXIT_CODE}
+          } >> rust-wasm-output/build-log.txt 2>&1
+
+      - name: Generate output files
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+
+          const projectName = fs.readFileSync('rust-wasm-output/project-name.txt', 'utf8').trim();
+
+          const bindgenDir = 'rust-wasm-bindgen';
+          const outputDir = 'rust-wasm-output';
+
+          const bindgenWasmName = `${projectName}_bg.wasm`;
+          const bindgenJsName = `${projectName}.js`;
+
+          const srcWasmPath = path.join(bindgenDir, bindgenWasmName);
+          const srcJsPath = path.join(bindgenDir, bindgenJsName);
+
+          const finalWasmName = `${projectName}.wasm`;
+          const finalLoaderName = `${projectName}.loader.js`;
+          const finalEmbeddedName = `${projectName}.embedded-loader.js`;
+          const finalBase64Name = `${projectName}.base64`;
+
+          const finalWasmPath = path.join(outputDir, finalWasmName);
+          const finalLoaderPath = path.join(outputDir, finalLoaderName);
+          const finalEmbeddedPath = path.join(outputDir, finalEmbeddedName);
+          const finalBase64Path = path.join(outputDir, finalBase64Name);
+
+          if (!fs.existsSync(srcWasmPath)) {
+            throw new Error(`wasm-bindgen wasm not found: ${srcWasmPath}`);
+          }
+
+          if (!fs.existsSync(srcJsPath)) {
+            throw new Error(`wasm-bindgen js not found: ${srcJsPath}`);
+          }
+
+          const wasmBuffer = fs.readFileSync(srcWasmPath);
+          const base64 = wasmBuffer.toString('base64');
+
+          fs.writeFileSync(finalWasmPath, wasmBuffer);
+          fs.writeFileSync(finalBase64Path, base64);
+
+          let loaderJs = fs.readFileSync(srcJsPath, 'utf8');
+
+          loaderJs = loaderJs.replaceAll(`${projectName}_bg.wasm`, finalWasmName);
+
+          const loaderHeader = [
+            `/*`,
+            `  ${finalLoaderName}`,
+            ``,
+            `  通常版 loader.js。`,
+            `  同じ階層にある ${finalWasmName} を読み込みます。`,
+            `*/`,
+            ``
+          ].join('\n');
+
+          fs.writeFileSync(finalLoaderPath, loaderHeader + loaderJs);
+
+          let embeddedJs = loaderJs;
+
+          const embeddedHelper = [
+            `/*`,
+            `  ${finalEmbeddedName}`,
+            ``,
+            `  base64内蔵版 embedded-loader.js。`,
+            `  この1ファイルだけで Wasm を復元して読み込みます。`,
+            `*/`,
+            ``,
+            `const __WASM_BASE64__ = ${JSON.stringify(base64)};`,
+            ``,
+            `function __base64ToUint8Array__(base64) {`,
+            `  const binary = atob(base64);`,
+            `  const length = binary.length;`,
+            `  const bytes = new Uint8Array(length);`,
+            `  for (let i = 0; i < length; i += 1) {`,
+            `    bytes[i] = binary.charCodeAt(i);`,
+            `  }`,
+            `  return bytes;`,
+            `}`,
+            ``,
+            `const __embeddedWasmBytes__ = __base64ToUint8Array__(__WASM_BASE64__);`,
+            ``
+          ].join('\n');
+
+          embeddedJs = embeddedJs.replace(
+            new RegExp(`input = new URL\$begin:math:text$\'\$\{projectName\}\_bg\\\\\.wasm\'\, import\\\\\.meta\\\\\.url\\$end:math:text$;`),
+            `input = __embeddedWasmBytes__;`
+          );
+
+          embeddedJs = embeddedJs.replace(
+            new RegExp(`input = new URL\$begin:math:text$\'\$\{finalWasmName\}\'\, import\\\\\.meta\\\\\.url\\$end:math:text$;`),
+            `input = __embeddedWasmBytes__;`
+          );
+
+          fs.writeFileSync(finalEmbeddedPath, embeddedHelper + '\n' + embeddedJs);
+
+          const summary = [
+            'Rust Wasm Build Output',
+            '',
+            `projectName: ${projectName}`,
+            '',
+            'generatedFiles:',
+            `- ${finalWasmName}`,
+            `- ${finalLoaderName}`,
+            `- ${finalEmbeddedName}`,
+            `- ${finalBase64Name}`,
+            '- build-log.txt',
+            '- build-request.json'
+          ].join('\n');
+
+          fs.writeFileSync(path.join(outputDir, 'output-summary.txt'), summary);
+          NODE
+
+      - name: Append output list to build log
+        run: |
+          {
+            echo ""
+            echo "===== generated files ====="
+            ls -la rust-wasm-output
+          } >> rust-wasm-output/build-log.txt 2>&1
+
+      - name: Create zip
+        run: |
+          PROJECT_NAME="$(cat rust-wasm-output/project-name.txt)"
+
+          cd rust-wasm-output
+
+          zip "${PROJECT_NAME}-rust-wasm-build.zip" \
+            "${PROJECT_NAME}.wasm" \
+            "${PROJECT_NAME}.loader.js" \
+            "${PROJECT_NAME}.embedded-loader.js" \
+            "${PROJECT_NAME}.base64" \
+            "build-log.txt" \
+            "build-request.json"
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: rust-wasm-build
-          path: dist
-          if-no-files-found: error
+          path: |
+            rust-wasm-output/*.wasm
+            rust-wasm-output/*.loader.js
+            rust-wasm-output/*.embedded-loader.js
+            rust-wasm-output/*.base64
+            rust-wasm-output/build-log.txt
+            rust-wasm-output/build-request.json
+            rust-wasm-output/*-rust-wasm-build.zip
