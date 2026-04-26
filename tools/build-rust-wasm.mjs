@@ -1,67 +1,21 @@
-// tools/build-rust-wasm.mjs
-import fs from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const ROOT_DIR = process.cwd();
-const BUILD_REQUEST_PATH = path.join(ROOT_DIR, 'build-request.json');
-const WORK_DIR = path.join(ROOT_DIR, '.rust-wasm-work');
-const PROJECT_DIR = path.join(WORK_DIR, 'project');
-const DIST_DIR = path.join(ROOT_DIR, 'dist');
-const LOG_LINES = [];
+const GENERATED_DIR = path.join(ROOT_DIR, '.generated');
+const WORK_DIR = path.join(GENERATED_DIR, 'work');
+const DIST_DIR = path.join(GENERATED_DIR, 'dist');
+
+const logLines = [];
 
 function log(message) {
   const text = String(message);
-  LOG_LINES.push(text);
+  logLines.push(text);
   console.log(text);
-}
-
-function fail(message) {
-  log('');
-  log('[ERROR] ' + message);
-  writeBuildLog();
-  process.exit(1);
-}
-
-function ensureDir(dirPath) {
-  fs.mkdirSync(dirPath, { recursive: true });
-}
-
-function removeDir(dirPath) {
-  if (fs.existsSync(dirPath)) {
-    fs.rmSync(dirPath, { recursive: true, force: true });
-  }
-}
-
-function readJson(filePath) {
-  if (!fs.existsSync(filePath)) {
-    fail(`${filePath} が見つかりません。`);
-  }
-
-  try {
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch (error) {
-    fail(`JSONの読み込みに失敗しました: ${error.message}`);
-  }
-}
-
-function writeFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content);
-}
-
-function writeTextFile(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  fs.writeFileSync(filePath, content, 'utf8');
-}
-
-function writeBuildLog() {
-  ensureDir(DIST_DIR);
-  fs.writeFileSync(
-    path.join(DIST_DIR, 'build-log.txt'),
-    LOG_LINES.join('\n'),
-    'utf8'
-  );
 }
 
 function normalizeProjectName(raw) {
@@ -76,9 +30,16 @@ function normalizeProjectName(raw) {
   return value || 'index';
 }
 
-function normalizeVersion(raw) {
-  const value = String(raw || '0.1.0').trim();
-  return /^\d+\.\d+\.\d+$/.test(value) ? value : '0.1.0';
+function normalizeFileBaseName(projectName) {
+  const value = String(projectName || 'index')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_')
+    .replace(/[^a-z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '');
+
+  return value || 'index';
 }
 
 function normalizeEdition(raw) {
@@ -87,18 +48,14 @@ function normalizeEdition(raw) {
   return '2021';
 }
 
-function normalizeEntryPoint(raw) {
-  const value = String(raw || 'src/lib.rs')
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
+function normalizeVersion(raw) {
+  const value = String(raw || '0.1.0').trim();
+  if (/^\d+\.\d+\.\d+$/.test(value)) return value;
+  return '0.1.0';
+}
 
-  if (!value) return 'src/lib.rs';
-  if (value.includes('..')) fail('entryPoint に .. は使えません。');
-  if (!value.endsWith('.rs')) fail('entryPoint は .rs で終わる必要があります。');
-
-  if (value.startsWith('src/')) return value;
-  return 'src/' + value;
+function normalizeBuildMode(raw) {
+  return raw === 'debug' ? 'debug' : 'release';
 }
 
 function normalizeOutputMode(raw) {
@@ -107,461 +64,396 @@ function normalizeOutputMode(raw) {
   return 'wasm-js';
 }
 
-function normalizeBuildMode(raw) {
-  return raw === 'debug' ? 'debug' : 'release';
+function normalizeEntryPoint(raw) {
+  const value = String(raw || 'src/lib.rs').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+
+  if (!value) return 'src/lib.rs';
+  if (value === 'lib.rs') return 'src/lib.rs';
+  if (value === 'main.rs') return 'src/main.rs';
+  if (value.startsWith('src/')) return value;
+
+  return `src/${value}`;
 }
 
 function normalizeCrateType(raw, entryPoint) {
   if (entryPoint.endsWith('main.rs')) return 'bin';
 
   const value = String(raw || 'cdylib').trim().toLowerCase();
-  if (['cdylib', 'rlib', 'staticlib', 'dylib'].includes(value)) return value;
+
+  if (['cdylib', 'rlib', 'staticlib', 'dylib'].includes(value)) {
+    return value;
+  }
 
   return 'cdylib';
 }
 
-function normalizeDependenciesText(raw) {
-  return String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
-}
+function parseBuildRequest() {
+  const raw = process.env.BUILD_REQUEST_JSON;
 
-function normalizeRustCode(raw) {
-  return String(raw || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-}
+  if (!raw || !raw.trim()) {
+    throw new Error('BUILD_REQUEST_JSON が空です。GitHub Actions の buildRequestJson にJSONを入れてください。');
+  }
 
-function normalizeSubFilePath(raw) {
-  const value = String(raw || '')
-    .trim()
-    .replace(/\\/g, '/')
-    .replace(/^\/+/, '');
+  let parsed;
 
-  if (!value) return '';
-  if (value.includes('..')) fail('subFiles に .. は使えません。');
-  if (!value.endsWith('.rs')) fail('subFiles は .rs で終わる必要があります。');
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new Error(`BUILD_REQUEST_JSON のJSON解析に失敗しました: ${error.message}`);
+  }
 
-  if (value.startsWith('src/')) return value;
-  return 'src/' + value;
-}
-
-function parseBuildRequest(raw) {
-  const build = raw && raw.build ? raw.build : raw;
+  const build = parsed && parsed.build ? parsed.build : parsed;
 
   if (!build || typeof build !== 'object') {
-    fail('build オブジェクトが見つかりません。');
+    throw new Error('build オブジェクトが見つかりません。');
   }
 
-  const entryPoint = normalizeEntryPoint(build.entryPoint);
+  const projectName = normalizeProjectName(build.projectName || 'index');
+  const entryPoint = normalizeEntryPoint(build.entryPoint || 'src/lib.rs');
+  const crateType = normalizeCrateType(build.crateType || 'cdylib', entryPoint);
 
-  const result = {
+  return {
     buildId: String(build.buildId || `rust-build-${Date.now()}`),
-    projectName: normalizeProjectName(build.projectName),
-    version: normalizeVersion(build.version),
-    edition: normalizeEdition(build.edition),
+    projectName,
+    fileBaseName: normalizeFileBaseName(projectName),
+    version: normalizeVersion(build.version || '0.1.0'),
+    edition: normalizeEdition(build.edition || '2021'),
     entryPoint,
-    outputMode: normalizeOutputMode(build.outputMode),
-    buildMode: normalizeBuildMode(build.buildMode),
-    crateType: normalizeCrateType(build.crateType, entryPoint),
-    dependenciesText: normalizeDependenciesText(build.dependenciesText),
-    featuresText: String(build.featuresText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim(),
-    mainRustCode: normalizeRustCode(build.mainRustCode),
+    outputMode: normalizeOutputMode(build.outputMode || 'wasm-js'),
+    buildMode: normalizeBuildMode(build.buildMode || 'release'),
+    crateType,
+    dependenciesText: String(build.dependenciesText || ''),
+    featuresText: String(build.featuresText || ''),
+    mainRustCode: String(build.mainRustCode || ''),
     subFiles: Array.isArray(build.subFiles) ? build.subFiles : [],
-    flags: build.flags || {}
+    flags: build.flags && typeof build.flags === 'object' ? build.flags : {}
   };
+}
 
-  if (!result.mainRustCode.trim()) {
-    fail('mainRustCode が空です。');
+async function resetGeneratedDirs() {
+  await fs.rm(GENERATED_DIR, { recursive: true, force: true });
+  await fs.mkdir(WORK_DIR, { recursive: true });
+  await fs.mkdir(DIST_DIR, { recursive: true });
+}
+
+function safeRelativePath(rawPath) {
+  const value = String(rawPath || '').trim().replace(/\\/g, '/').replace(/^\/+/, '');
+
+  if (!value) {
+    throw new Error('空のファイルパスは使えません。');
   }
 
-  return result;
-}
-
-function makeCargoToml(config) {
-  const libSection = config.entryPoint.endsWith('lib.rs')
-    ? [
-        '',
-        '[lib]',
-        `crate-type = ["${config.crateType}"]`
-      ].join('\n')
-    : '';
-
-  const dependencies = config.dependenciesText || 'wasm-bindgen = "0.2"';
-
-  return [
-    '[package]',
-    `name = "${config.projectName}"`,
-    `version = "${config.version}"`,
-    `edition = "${config.edition}"`,
-    libSection,
-    '',
-    '[dependencies]',
-    dependencies,
-    ''
-  ].join('\n');
-}
-
-function createProjectFiles(config) {
-  removeDir(WORK_DIR);
-  removeDir(DIST_DIR);
-  ensureDir(PROJECT_DIR);
-  ensureDir(DIST_DIR);
-
-  writeTextFile(path.join(PROJECT_DIR, 'Cargo.toml'), makeCargoToml(config));
-  writeTextFile(path.join(PROJECT_DIR, config.entryPoint), config.mainRustCode);
-
-  for (const file of config.subFiles) {
-    const filePath = normalizeSubFilePath(file.name);
-    const content = normalizeRustCode(file.content || '');
-    writeTextFile(path.join(PROJECT_DIR, filePath), content);
+  if (value.includes('..')) {
+    throw new Error(`危険なファイルパスです: ${value}`);
   }
 
-  log('プロジェクトファイルを生成しました。');
-  log(`projectName: ${config.projectName}`);
-  log(`entryPoint: ${config.entryPoint}`);
-  log(`buildMode: ${config.buildMode}`);
-  log(`outputMode: ${config.outputMode}`);
+  if (!value.endsWith('.rs')) {
+    throw new Error(`Rustファイルではありません: ${value}`);
+  }
+
+  if (value.startsWith('src/')) return value;
+
+  return `src/${value}`;
 }
 
-function runCommand(command, args, options = {}) {
+function createCargoToml(input) {
+  const lines = [];
+
+  lines.push('[package]');
+  lines.push(`name = "${input.projectName}"`);
+  lines.push(`version = "${input.version}"`);
+  lines.push(`edition = "${input.edition}"`);
+  lines.push('');
+
+  if (input.crateType !== 'bin') {
+    lines.push('[lib]');
+    lines.push(`crate-type = ["${input.crateType}"]`);
+    lines.push('');
+  }
+
+  if (input.featuresText.trim()) {
+    lines.push('[features]');
+    lines.push(input.featuresText.trim());
+    lines.push('');
+  }
+
+  lines.push('[dependencies]');
+
+  const dependencies = input.dependenciesText.trim();
+
+  if (dependencies) {
+    lines.push(dependencies);
+  } else {
+    lines.push('wasm-bindgen = "0.2"');
+  }
+
+  lines.push('');
+
+  return lines.join('\n');
+}
+
+async function writeProjectFiles(input) {
+  const cargoToml = createCargoToml(input);
+  const cargoPath = path.join(WORK_DIR, 'Cargo.toml');
+
+  await fs.writeFile(cargoPath, cargoToml, 'utf8');
+
+  const entryRelativePath = safeRelativePath(input.entryPoint);
+  const entryAbsolutePath = path.join(WORK_DIR, entryRelativePath);
+
+  await fs.mkdir(path.dirname(entryAbsolutePath), { recursive: true });
+
+  if (!input.mainRustCode.trim()) {
+    throw new Error('mainRustCode が空です。');
+  }
+
+  await fs.writeFile(entryAbsolutePath, input.mainRustCode, 'utf8');
+
+  for (const file of input.subFiles) {
+    const relativePath = safeRelativePath(file.name);
+    const absolutePath = path.join(WORK_DIR, relativePath);
+
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, String(file.content || ''), 'utf8');
+  }
+
+  log('Cargo.toml と Rust ソースを生成しました。');
+  log(`entryPoint: ${entryRelativePath}`);
+}
+
+async function runCommand(command, args, options = {}) {
   log('');
   log(`$ ${command} ${args.join(' ')}`);
 
   try {
-    const output = execFileSync(command, args, {
-      cwd: options.cwd || PROJECT_DIR,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe']
+    const result = await execFileAsync(command, args, {
+      cwd: options.cwd || WORK_DIR,
+      maxBuffer: 1024 * 1024 * 20
     });
 
-    if (output.trim()) {
-      log(output.trim());
-    }
+    if (result.stdout) log(result.stdout.trim());
+    if (result.stderr) log(result.stderr.trim());
 
-    return output;
+    return result;
   } catch (error) {
-    if (error.stdout) log(String(error.stdout));
-    if (error.stderr) log(String(error.stderr));
-    fail(`${command} の実行に失敗しました。`);
+    if (error.stdout) log(error.stdout.trim());
+    if (error.stderr) log(error.stderr.trim());
+    throw error;
   }
 }
 
-function commandExists(command, args = ['--version']) {
-  try {
-    execFileSync(command, args, {
-      cwd: ROOT_DIR,
-      stdio: 'ignore'
-    });
-    return true;
-  } catch {
-    return false;
+async function buildCargo(input) {
+  const args = ['build', '--target', 'wasm32-unknown-unknown'];
+
+  if (input.buildMode === 'release') {
+    args.push('--release');
   }
+
+  await runCommand('cargo', args, { cwd: WORK_DIR });
+
+  log('cargo build が完了しました。');
 }
 
-function ensureTooling() {
-  if (!commandExists('cargo')) {
-    fail('cargo が見つかりません。GitHub Actions に Rust toolchain を入れてください。');
+async function findBuiltWasm(input) {
+  const profileDir = input.buildMode === 'release' ? 'release' : 'debug';
+  const targetDir = path.join(WORK_DIR, 'target', 'wasm32-unknown-unknown', profileDir);
+  const files = await fs.readdir(targetDir);
+
+  const wasmFiles = files.filter((name) => name.endsWith('.wasm'));
+
+  if (!wasmFiles.length) {
+    throw new Error(`生成された .wasm が見つかりません: ${targetDir}`);
   }
 
-  if (!commandExists('wasm-bindgen', ['--version'])) {
-    fail('wasm-bindgen CLI が見つかりません。GitHub Actions で cargo install wasm-bindgen-cli を実行してください。');
-  }
+  const preferredName = `${input.fileBaseName}.wasm`;
+  const picked = wasmFiles.includes(preferredName) ? preferredName : wasmFiles[0];
 
-  log('必要ツール確認OK: cargo / wasm-bindgen');
+  return path.join(targetDir, picked);
 }
 
-function buildWasm(config) {
-  runCommand('rustup', ['target', 'add', 'wasm32-unknown-unknown'], {
-    cwd: PROJECT_DIR
-  });
+async function runWasmBindgen(input, builtWasmPath) {
+  const bindgenOutDir = path.join(GENERATED_DIR, 'bindgen');
 
-  const cargoArgs = ['build', '--target', 'wasm32-unknown-unknown'];
+  await fs.mkdir(bindgenOutDir, { recursive: true });
 
-  if (config.buildMode === 'release') {
-    cargoArgs.push('--release');
-  }
-
-  runCommand('cargo', cargoArgs, { cwd: PROJECT_DIR });
-
-  const profileDir = config.buildMode === 'release' ? 'release' : 'debug';
-  const rawWasmPath = path.join(
-    PROJECT_DIR,
-    'target',
-    'wasm32-unknown-unknown',
-    profileDir,
-    `${config.projectName.replace(/-/g, '_')}.wasm`
-  );
-
-  if (!fs.existsSync(rawWasmPath)) {
-    fail(`生成された wasm が見つかりません: ${rawWasmPath}`);
-  }
-
-  const bindgenOutDir = path.join(PROJECT_DIR, 'pkg');
-  removeDir(bindgenOutDir);
-  ensureDir(bindgenOutDir);
-
-  runCommand(
+  await runCommand(
     'wasm-bindgen',
     [
-      rawWasmPath,
+      builtWasmPath,
       '--target',
       'web',
       '--out-dir',
       bindgenOutDir,
       '--out-name',
-      config.projectName
+      input.fileBaseName
     ],
-    { cwd: PROJECT_DIR }
+    { cwd: WORK_DIR }
   );
 
-  log('wasm-bindgen 出力完了。');
-
-  return bindgenOutDir;
-}
-
-function findFirstFile(dirPath, predicate) {
-  if (!fs.existsSync(dirPath)) return null;
-
-  const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-
-  for (const entry of entries) {
-    const fullPath = path.join(dirPath, entry.name);
-
-    if (entry.isDirectory()) {
-      const found = findFirstFile(fullPath, predicate);
-      if (found) return found;
-      continue;
-    }
-
-    if (predicate(fullPath, entry.name)) {
-      return fullPath;
-    }
-  }
-
-  return null;
-}
-
-function readBase64(filePath) {
-  return fs.readFileSync(filePath).toString('base64');
-}
-
-function makeLoaderJs(config, bindgenJsName, wasmName) {
-  const exportName = toSafeJsIdentifier(config.projectName) + 'WasmModule';
-
-  return [
-    `// ${config.projectName}.loader.js`,
-    '// GitHub Actions で生成された本物の .wasm を読み込むための loader です。',
-    '',
-    `import init, * as wasmExports from './${bindgenJsName}';`,
-    '',
-    'let cachedModule = null;',
-    '',
-    `export async function load${toPascalCase(config.projectName)}Wasm() {`,
-    '  if (cachedModule) {',
-    '    return cachedModule;',
-    '  }',
-    '',
-    `  await init(new URL('./${wasmName}', import.meta.url));`,
-    '',
-    '  cachedModule = wasmExports;',
-    '  return cachedModule;',
-    '}',
-    '',
-    `export const ${exportName} = {`,
-    `  load: load${toPascalCase(config.projectName)}Wasm`,
-    '};',
-    ''
-  ].join('\n');
-}
-
-function makeExampleJs(config) {
-  const pascal = toPascalCase(config.projectName);
-
-  return [
-    `// ${config.projectName}.example.js`,
-    '// 読み込み確認用サンプルです。',
-    '',
-    `import { load${pascal}Wasm } from './${config.projectName}.loader.js';`,
-    '',
-    'async function main() {',
-    `  const wasm = await load${pascal}Wasm();`,
-    '',
-    '  console.log("wasm loaded:", wasm);',
-    '',
-    '  if (typeof wasm.hashLoginValues === "function") {',
-    '    const result = wasm.hashLoginValues("sample-id", "sample-password");',
-    '    console.log("hashLoginValues result:", result);',
-    '  }',
-    '',
-    '  if (typeof wasm.greet === "function") {',
-    '    console.log(wasm.greet("orikuro"));',
-    '  }',
-    '}',
-    '',
-    'main().catch((error) => {',
-    '  console.error(error);',
-    '});',
-    ''
-  ].join('\n');
-}
-
-function toPascalCase(value) {
-  return String(value || 'Index')
-    .split(/[^a-zA-Z0-9]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('') || 'Index';
-}
-
-function toSafeJsIdentifier(value) {
-  const normalized = String(value || 'index')
-    .replace(/[^a-zA-Z0-9_$]/g, '_')
-    .replace(/^([^a-zA-Z_$])/, '_$1');
-
-  return normalized || 'index';
-}
-
-function copyOutputs(config, bindgenOutDir) {
-  const wasmPath = findFirstFile(bindgenOutDir, (fullPath, name) => name.endsWith('.wasm'));
-  const bindgenJsPath = findFirstFile(bindgenOutDir, (fullPath, name) => name.endsWith('.js') && !name.endsWith('.d.ts'));
-
-  if (!wasmPath) fail('pkg 内に .wasm が見つかりません。');
-  if (!bindgenJsPath) fail('pkg 内に wasm-bindgen の .js が見つかりません。');
-
-  const wasmName = `${config.projectName}.wasm`;
-  const bindgenJsName = `${config.projectName}.bindgen.js`;
-  const loaderJsName = `${config.projectName}.loader.js`;
-  const exampleJsName = `${config.projectName}.example.js`;
-
-  const distWasmPath = path.join(DIST_DIR, wasmName);
-  const distBindgenJsPath = path.join(DIST_DIR, bindgenJsName);
-  const distLoaderJsPath = path.join(DIST_DIR, loaderJsName);
-  const distExampleJsPath = path.join(DIST_DIR, exampleJsName);
-
-  fs.copyFileSync(wasmPath, distWasmPath);
-  fs.copyFileSync(bindgenJsPath, distBindgenJsPath);
-
-  const loaderJs = makeLoaderJs(config, bindgenJsName, wasmName);
-  const exampleJs = makeExampleJs(config);
-
-  writeTextFile(distLoaderJsPath, loaderJs);
-  writeTextFile(distExampleJsPath, exampleJs);
-
-  const wasmBase64 = readBase64(distWasmPath);
-  const bindgenJs = fs.readFileSync(distBindgenJsPath, 'utf8');
-
-  const manifest = {
-    buildId: config.buildId,
-    projectName: config.projectName,
-    version: config.version,
-    edition: config.edition,
-    entryPoint: config.entryPoint,
-    outputMode: config.outputMode,
-    buildMode: config.buildMode,
-    crateType: config.crateType,
-    createdAt: new Date().toISOString(),
-    files: [
-      {
-        name: wasmName,
-        type: 'application/wasm',
-        note: '本番配置する .wasm 本体'
-      },
-      {
-        name: bindgenJsName,
-        type: 'text/javascript',
-        note: 'wasm-bindgen が生成した JS'
-      },
-      {
-        name: loaderJsName,
-        type: 'text/javascript',
-        note: '本番ページから読み込む loader'
-      },
-      {
-        name: exampleJsName,
-        type: 'text/javascript',
-        note: '動作確認用サンプル'
-      },
-      {
-        name: 'manifest.json',
-        type: 'application/json',
-        note: '成果物一覧'
-      },
-      {
-        name: 'build-log.txt',
-        type: 'text/plain',
-        note: 'ビルドログ'
-      },
-      {
-        name: 'separated-output.txt',
-        type: 'text/plain',
-        note: 'スマホ確認用の分別表示'
-      }
-    ]
-  };
-
-  writeTextFile(
-    path.join(DIST_DIR, 'manifest.json'),
-    JSON.stringify(manifest, null, 2)
-  );
-
-  const separatedOutput = [
-    `===== FILE: ${wasmName} =====`,
-    '※ .wasm はバイナリファイルなので base64 で表示しています。',
-    '※ 本番では base64 ではなく、Artifacts 内の .wasm ファイルをそのまま配置してください。',
-    '',
-    wasmBase64,
-    '',
-    `===== FILE: ${bindgenJsName} =====`,
-    bindgenJs,
-    '',
-    `===== FILE: ${loaderJsName} =====`,
-    loaderJs,
-    '',
-    `===== FILE: ${exampleJsName} =====`,
-    exampleJs,
-    '',
-    '===== FILE: manifest.json =====',
-    JSON.stringify(manifest, null, 2),
-    '',
-    '===== FILE: build-log.txt =====',
-    LOG_LINES.join('\n'),
-    ''
-  ].join('\n');
-
-  writeTextFile(path.join(DIST_DIR, 'separated-output.txt'), separatedOutput);
-
-  log('');
-  log('成果物を dist に出力しました。');
-  log(`- ${wasmName}`);
-  log(`- ${bindgenJsName}`);
-  log(`- ${loaderJsName}`);
-  log(`- ${exampleJsName}`);
-  log('- manifest.json');
-  log('- separated-output.txt');
+  log('wasm-bindgen が完了しました。');
 
   return {
-    wasmName,
-    bindgenJsName,
-    loaderJsName,
-    exampleJsName
+    bindgenOutDir,
+    bindgenWasmPath: path.join(bindgenOutDir, `${input.fileBaseName}_bg.wasm`),
+    bindgenJsPath: path.join(bindgenOutDir, `${input.fileBaseName}.js`)
   };
 }
 
-function main() {
-  log('Rust Wasm Build start');
+function createNormalLoaderJs(input) {
+  const wasmFileName = `${input.fileBaseName}.wasm`;
+  const bindgenJsFileName = `${input.fileBaseName}.bindgen.js`;
 
-  const rawRequest = readJson(BUILD_REQUEST_PATH);
-  const config = parseBuildRequest(rawRequest);
-
-  ensureTooling();
-  createProjectFiles(config);
-
-  const bindgenOutDir = buildWasm(config);
-  const outputs = copyOutputs(config, bindgenOutDir);
-
-  log('');
-  log('Rust Wasm Build success');
-  log(`main wasm: ${outputs.wasmName}`);
-  log(`loader: ${outputs.loaderJsName}`);
-
-  writeBuildLog();
+  return [
+    `import init, * as wasmModule from './${bindgenJsFileName}';`,
+    '',
+    'let wasmReadyPromise = null;',
+    '',
+    'export async function initWasm() {',
+    '  if (!wasmReadyPromise) {',
+    `    wasmReadyPromise = init(new URL('./${wasmFileName}', import.meta.url));`,
+    '  }',
+    '',
+    '  await wasmReadyPromise;',
+    '  return wasmModule;',
+    '}',
+    '',
+    'export async function getWasmModule() {',
+    '  return initWasm();',
+    '}',
+    '',
+    'export default initWasm;',
+    ''
+  ].join('\n');
 }
 
-main();
+function createEmbeddedLoaderJs(input, base64Text, bindgenJsText) {
+  return [
+    '// embedded-loader.js',
+    '// .wasm を base64 として内蔵し、wasm-bindgen JS と接続して読み込むための単体ローダーです。',
+    '',
+    `const WASM_BASE64 = ${JSON.stringify(base64Text)};`,
+    '',
+    'function base64ToUint8Array(base64) {',
+    '  const binary = atob(base64);',
+    '  const bytes = new Uint8Array(binary.length);',
+    '',
+    '  for (let i = 0; i < binary.length; i += 1) {',
+    '    bytes[i] = binary.charCodeAt(i);',
+    '  }',
+    '',
+    '  return bytes;',
+    '}',
+    '',
+    'const wasmBytes = base64ToUint8Array(WASM_BASE64);',
+    '',
+    '// ===== wasm-bindgen generated JS start =====',
+    bindgenJsText,
+    '// ===== wasm-bindgen generated JS end =====',
+    '',
+    'let embeddedWasmReadyPromise = null;',
+    '',
+    'export async function initEmbeddedWasm() {',
+    '  if (!embeddedWasmReadyPromise) {',
+    '    embeddedWasmReadyPromise = init(wasmBytes);',
+    '  }',
+    '',
+    '  await embeddedWasmReadyPromise;',
+    '',
+    '  return {',
+    '    hashLoginValues: typeof hashLoginValues === "function" ? hashLoginValues : undefined',
+    '  };',
+    '}',
+    '',
+    'export async function getEmbeddedWasmModule() {',
+    '  return initEmbeddedWasm();',
+    '}',
+    '',
+    'export { hashLoginValues };',
+    '',
+    'export default initEmbeddedWasm;',
+    ''
+  ].join('\n');
+}
+
+async function writeDistFiles(input, bindgenResult) {
+  const wasmBytes = await fs.readFile(bindgenResult.bindgenWasmPath);
+  const bindgenJsText = await fs.readFile(bindgenResult.bindgenJsPath, 'utf8');
+
+  const wasmFileName = `${input.fileBaseName}.wasm`;
+  const base64FileName = `${input.fileBaseName}.wasm.base64.txt`;
+  const bindgenJsFileName = `${input.fileBaseName}.bindgen.js`;
+  const loaderFileName = `${input.fileBaseName}.loader.js`;
+  const embeddedLoaderFileName = `${input.fileBaseName}.embedded-loader.js`;
+
+  const base64Text = wasmBytes.toString('base64');
+  const normalLoaderJs = createNormalLoaderJs(input);
+  const embeddedLoaderJs = createEmbeddedLoaderJs(input, base64Text, bindgenJsText);
+
+  await fs.writeFile(path.join(DIST_DIR, wasmFileName), wasmBytes);
+  await fs.writeFile(path.join(DIST_DIR, base64FileName), base64Text, 'utf8');
+  await fs.writeFile(path.join(DIST_DIR, bindgenJsFileName), bindgenJsText, 'utf8');
+  await fs.writeFile(path.join(DIST_DIR, loaderFileName), normalLoaderJs, 'utf8');
+  await fs.writeFile(path.join(DIST_DIR, embeddedLoaderFileName), embeddedLoaderJs, 'utf8');
+
+  log('');
+  log('生成ファイル:');
+  log(`- ${wasmFileName}`);
+  log(`- ${base64FileName}`);
+  log(`- ${bindgenJsFileName}`);
+  log(`- ${loaderFileName}`);
+  log(`- ${embeddedLoaderFileName}`);
+
+  return {
+    wasmFileName,
+    base64FileName,
+    bindgenJsFileName,
+    loaderFileName,
+    embeddedLoaderFileName,
+    embeddedLoaderJs
+  };
+}
+
+async function writeBuildLog() {
+  const text = logLines.join('\n') + '\n';
+  await fs.writeFile(path.join(DIST_DIR, 'build-log.txt'), text, 'utf8');
+}
+
+async function main() {
+  try {
+    const input = parseBuildRequest();
+
+    log('Rust Wasm Build を開始します。');
+    log(`buildId: ${input.buildId}`);
+    log(`projectName: ${input.projectName}`);
+    log(`fileBaseName: ${input.fileBaseName}`);
+    log(`entryPoint: ${input.entryPoint}`);
+    log(`buildMode: ${input.buildMode}`);
+    log(`crateType: ${input.crateType}`);
+    log(`outputMode: ${input.outputMode}`);
+
+    await resetGeneratedDirs();
+    await writeProjectFiles(input);
+    await buildCargo(input);
+
+    const builtWasmPath = await findBuiltWasm(input);
+    log(`built wasm: ${builtWasmPath}`);
+
+    const bindgenResult = await runWasmBindgen(input, builtWasmPath);
+    await writeDistFiles(input, bindgenResult);
+
+    log('');
+    log('Rust Wasm Build が完了しました。');
+    await writeBuildLog();
+  } catch (error) {
+    log('');
+    log('Rust Wasm Build に失敗しました。');
+    log(error && error.stack ? error.stack : String(error));
+
+    await fs.mkdir(DIST_DIR, { recursive: true });
+    await writeBuildLog();
+
+    process.exitCode = 1;
+  }
+}
+
+await main();
