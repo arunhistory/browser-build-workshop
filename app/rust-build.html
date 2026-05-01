@@ -26,7 +26,7 @@
         <p>
           Rust を Wasm へ変換するためのビルド作業ページ。
           GitHub Actions に投入する buildRequestJson を生成し、
-          実行後の成果物として ZIP と 〇〇.embedded-loader.js を扱います。
+          実行後の成果物として build-log、出力内容、〇〇.embedded-loader.js、ZIP を扱います。
         </p>
       </div>
     </section>
@@ -180,7 +180,7 @@ pub fn greet(name: &str) -> String {
 
         <div class="notice">
           このページでは GitHub Actions に投入する buildRequestJson を生成します。
-          実際の Rust → Wasm ビルドは GitHub Actions 側で実行します。
+          実際の Rust → Wasm ビルド、base64化、embedded-loader.js生成、ZIP生成は GitHub Actions 側で実行します。
         </div>
       </article>
 
@@ -227,7 +227,7 @@ pub fn greet(name: &str) -> String {
             </button>
           </div>
           <div class="notice" id="zipNotice">
-            ZIPには .wasm、wasm-base64.txt、wasm-bindgen JS、loader.js、embedded-loader.js、build-log.txt を入れます。
+            ZIPには、プロジェクト名.wasm、プロジェクト名.loader.js、プロジェクト名.embedded-loader.js、プロジェクト名.base64、build-log.txt、build-request.json を入れます。
           </div>
         </div>
 
@@ -244,8 +244,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          表示する成果物は 〇〇.embedded-loader.js のみに絞ります。
-          .wasm本体とbase64はZIP内に保存し、画面表示では扱いません。
+          画面表示は、ビルドログ、出力内容、〇〇.embedded-loader.js、ZIPダウンロードに絞ります。
+          .wasm本体とbase64単体はZIP内に保存し、画面には直接表示しません。
         </div>
       </article>
     </section>
