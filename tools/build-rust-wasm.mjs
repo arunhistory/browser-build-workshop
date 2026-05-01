@@ -7,7 +7,6 @@ const ROOT_DIR = process.cwd();
 const GENERATED_DIR = path.join(ROOT_DIR, ".generated");
 const PROJECT_DIR = path.join(GENERATED_DIR, "rust-project");
 const SRC_DIR = path.join(PROJECT_DIR, "src");
-const BUILD_DIR = path.join(GENERATED_DIR, "build");
 const BINDGEN_DIR = path.join(GENERATED_DIR, "bindgen");
 const LOOSE_DIR = path.join(GENERATED_DIR, "loose-artifacts");
 const ZIP_WORK_DIR = path.join(GENERATED_DIR, "zip-work");
@@ -63,7 +62,6 @@ function cleanWorkspace() {
 
   ensureDir(PROJECT_DIR);
   ensureDir(SRC_DIR);
-  ensureDir(BUILD_DIR);
   ensureDir(BINDGEN_DIR);
   ensureDir(LOOSE_DIR);
   ensureDir(ZIP_WORK_DIR);
@@ -250,7 +248,11 @@ function validateConfig(config) {
   }
 
   if (config.outputMode === "js-only") {
-    warnings.push("js-only では .wasm 本体を生成対象にしません。通常は wasm-js を使用してください。");
+    warnings.push("js-only 指定ですが、完成フロー維持のため .wasm / loader.js / embedded-loader.js も生成します。");
+  }
+
+  if (config.outputMode === "wasm-only") {
+    warnings.push("wasm-only 指定ですが、完成フロー維持のため loader.js / embedded-loader.js も生成します。");
   }
 
   return { errors, warnings };
@@ -458,53 +460,63 @@ function findBindgenJs(config) {
   return candidates[0] || null;
 }
 
-function makeLoaderJs(config, bindgenJsFileName, wasmFileName) {
-  const functionName =
+function makeLoaderFunctionName(config) {
+  return (
     "load" +
     config.projectName
       .split("-")
       .filter(Boolean)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join("");
+      .join("")
+  );
+}
+
+function findDefaultExportFunctionName(jsText) {
+  const match = jsText.match(/export\s+default\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*;/);
+  return match ? match[1] : "__wbg_init";
+}
+
+function patchBindgenWasmUrl(bindgenJsContent, wasmFileName) {
+  return bindgenJsContent.replace(
+    /new URL\((['"`])[^'"`]*\.wasm\1,\s*import\.meta\.url\)/g,
+    `new URL("./${wasmFileName}", import.meta.url)`
+  );
+}
+
+function patchBindgenDefaultInputToEmbeddedBytes(bindgenJsContent) {
+  return bindgenJsContent.replace(
+    /input\s*=\s*new URL\((['"`])[^'"`]*\.wasm\1,\s*import\.meta\.url\)\s*;/g,
+    "input = __embeddedWasmBytes();"
+  );
+}
+
+function makeLoaderJs(config, bindgenJsContent, wasmFileName) {
+  const functionName = makeLoaderFunctionName(config);
+  const initFunctionName = findDefaultExportFunctionName(bindgenJsContent);
+  const patchedBindgenJs = patchBindgenWasmUrl(bindgenJsContent, wasmFileName);
 
   return [
     "// Rust Wasm loader",
     `// build id: ${config.buildId}`,
     `// project: ${config.projectName}`,
+    "// This file is generated from wasm-bindgen output.",
     "",
-    `import init, * as wasmModule from "./${bindgenJsFileName}";`,
+    patchedBindgenJs,
     "",
-    `export async function ${functionName}() {`,
-    `  const wasmUrl = new URL("./${wasmFileName}", import.meta.url);`,
-    "  await init(wasmUrl);",
-    "  return wasmModule;",
+    `export async function ${functionName}(input) {`,
+    `  await ${initFunctionName}(input);`,
+    "  return wasm;",
     "}",
     "",
-    `export { wasmModule };`,
-    `export default ${functionName};`,
+    `export { ${functionName} as loadWasm };`,
     ""
   ].join("\n");
 }
 
 function makeEmbeddedLoaderJs(config, bindgenJsContent, wasmBase64) {
-  const functionName =
-    "load" +
-    config.projectName
-      .split("-")
-      .filter(Boolean)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join("");
-
-  const marker = "input = new URL(";
-
-  let patchedBindgenJs = bindgenJsContent;
-
-  if (patchedBindgenJs.includes(marker)) {
-    patchedBindgenJs = patchedBindgenJs.replace(
-      /input\s*=\s*new URL\([^;]+;/,
-      "input = __embeddedWasmBytes();"
-    );
-  }
+  const functionName = makeLoaderFunctionName(config);
+  const initFunctionName = findDefaultExportFunctionName(bindgenJsContent);
+  const patchedBindgenJs = patchBindgenDefaultInputToEmbeddedBytes(bindgenJsContent);
 
   return [
     "// Rust Wasm embedded loader",
@@ -526,14 +538,11 @@ function makeEmbeddedLoaderJs(config, bindgenJsContent, wasmBase64) {
     patchedBindgenJs,
     "",
     `export async function ${functionName}() {`,
-    "  await init(__embeddedWasmBytes());",
-    "  return {",
-    "    ...wasm_bindgen,",
-    "    module: wasm",
-    "  };",
+    `  await ${initFunctionName}();`,
+    "  return wasm;",
     "}",
     "",
-    `export default ${functionName};`,
+    `export { ${functionName} as loadWasm };`,
     ""
   ].join("\n");
 }
@@ -551,8 +560,8 @@ function makeOutputSummary(config, artifacts) {
   lines.push("page display:");
   lines.push("- build-log.txt");
   lines.push("- output-summary.txt");
-  lines.push("- " + config.projectName + ".embedded-loader.js");
-  lines.push("- " + config.projectName + "-wasm-build.zip");
+  lines.push("- " + artifacts.names.embeddedLoaderName);
+  lines.push("- " + artifacts.names.zipName);
   lines.push("");
   lines.push("zip contents:");
   for (const artifact of artifacts.zipContents) {
@@ -625,46 +634,44 @@ function createLooseArtifacts(config, cargoResult, bindgenResult) {
   }
 
   const wasmName = `${config.projectName}.wasm`;
-  const bindgenJsName = `${config.projectName}.bindgen.js`;
   const loaderName = `${config.projectName}.loader.js`;
-  const base64Name = `${config.projectName}.base64`;
   const embeddedLoaderName = `${config.projectName}.embedded-loader.js`;
-  const buildRequestName = "build-request.json";
+  const base64Name = `${config.projectName}.base64`;
   const buildLogName = "build-log.txt";
+  const buildRequestName = "build-request.json";
   const outputSummaryName = "output-summary.txt";
+  const zipName = `${config.projectName}-wasm-build.zip`;
 
   const wasmBytes = readBinary(bindgenWasmPath);
   const wasmBase64 = wasmBytes.toString("base64");
 
   const bindgenJsContent = readText(bindgenJsPath);
-  const loaderJsContent = makeLoaderJs(config, bindgenJsName, wasmName);
+  const loaderJsContent = makeLoaderJs(config, bindgenJsContent, wasmName);
   const embeddedLoaderContent = makeEmbeddedLoaderJs(config, bindgenJsContent, wasmBase64);
 
   writeBinary(path.join(LOOSE_DIR, wasmName), wasmBytes);
-  writeText(path.join(LOOSE_DIR, bindgenJsName), bindgenJsContent);
   writeText(path.join(LOOSE_DIR, loaderName), loaderJsContent);
-  writeText(path.join(LOOSE_DIR, base64Name), wasmBase64);
   writeText(path.join(LOOSE_DIR, embeddedLoaderName), embeddedLoaderContent);
+  writeText(path.join(LOOSE_DIR, base64Name), wasmBase64);
   writeText(path.join(LOOSE_DIR, buildRequestName), JSON.stringify(config.rawRequest, null, 2));
 
   const artifactNames = {
     wasmName,
-    bindgenJsName,
     loaderName,
-    base64Name,
     embeddedLoaderName,
-    buildRequestName,
+    base64Name,
     buildLogName,
-    outputSummaryName
+    buildRequestName,
+    outputSummaryName,
+    zipName
   };
 
   const artifacts = {
     loose: [
       wasmName,
-      bindgenJsName,
       loaderName,
-      base64Name,
       embeddedLoaderName,
+      base64Name,
       buildRequestName,
       buildLogName,
       outputSummaryName
@@ -672,14 +679,14 @@ function createLooseArtifacts(config, cargoResult, bindgenResult) {
     page: [
       buildLogName,
       outputSummaryName,
-      embeddedLoaderName
+      embeddedLoaderName,
+      zipName
     ],
     zipContents: [
       wasmName,
-      bindgenJsName,
       loaderName,
-      base64Name,
       embeddedLoaderName,
+      base64Name,
       buildLogName,
       buildRequestName
     ],
@@ -696,7 +703,7 @@ function createLooseArtifacts(config, cargoResult, bindgenResult) {
 }
 
 function publishPageArtifacts(config, artifacts) {
-  const { buildLogName, outputSummaryName, embeddedLoaderName } = artifacts.names;
+  const { buildLogName, outputSummaryName, embeddedLoaderName, zipName } = artifacts.names;
 
   copyFile(path.join(LOOSE_DIR, buildLogName), path.join(DIST_DIR, buildLogName));
   copyFile(path.join(LOOSE_DIR, outputSummaryName), path.join(DIST_DIR, outputSummaryName));
@@ -712,7 +719,7 @@ function publishPageArtifacts(config, artifacts) {
       outputSummaryName,
       embeddedLoaderName
     ],
-    zipFile: `${config.projectName}-wasm-build.zip`
+    zipFile: zipName
   };
 
   writeText(path.join(DIST_DIR, "page-manifest.json"), JSON.stringify(pageManifest, null, 2));
@@ -726,7 +733,7 @@ function createZipFromLooseArtifacts(config, artifacts) {
     copyFile(path.join(LOOSE_DIR, name), path.join(ZIP_WORK_DIR, name));
   }
 
-  const zipName = `${config.projectName}-wasm-build.zip`;
+  const zipName = artifacts.names.zipName;
   const zipPath = path.join(DIST_DIR, zipName);
 
   const zipResult = runRequired(
@@ -742,12 +749,13 @@ function createZipFromLooseArtifacts(config, artifacts) {
   };
 }
 
-function publishZipArtifact(config, zipInfo) {
+function publishZipArtifact(config, zipInfo, artifacts) {
   const zipManifest = {
     ok: true,
     buildId: config.buildId,
     projectName: config.projectName,
     zipFile: zipInfo.zipName,
+    zipContents: artifacts.zipContents,
     generatedAt: new Date().toISOString()
   };
 
@@ -796,13 +804,17 @@ function main() {
 
     const zipInfo = createZipFromLooseArtifacts(config, artifacts);
 
-    publishZipArtifact(config, zipInfo);
+    publishZipArtifact(config, zipInfo, artifacts);
 
     console.log("Rust Wasm build succeeded.");
     console.log("buildId:", config.buildId);
     console.log("projectName:", config.projectName);
     console.log("page artifacts:");
     for (const name of artifacts.page) {
+      console.log("-", name);
+    }
+    console.log("zip contents:");
+    for (const name of artifacts.zipContents) {
       console.log("-", name);
     }
     console.log("zip:", zipInfo.zipName);
