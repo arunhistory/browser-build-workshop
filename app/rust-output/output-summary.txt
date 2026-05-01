@@ -1,0 +1,4 @@
+=== Rust Wasm Output Summary ===
+status: waiting
+
+まだ成果物は生成されていません。
