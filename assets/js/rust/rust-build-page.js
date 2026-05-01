@@ -176,12 +176,12 @@
 
     return {
       wasm: baseName + '.wasm',
-      wasmBase64: baseName + '.wasm-base64.txt',
-      bindgenJs: baseName + '.js',
+      base64: baseName + '.base64',
       loaderJs: baseName + '.loader.js',
       embeddedLoaderJs: baseName + '.embedded-loader.js',
       zip: baseName + '-wasm-build.zip',
-      buildLog: 'build-log.txt'
+      buildLog: 'build-log.txt',
+      buildRequest: 'build-request.json'
     };
   }
 
@@ -404,20 +404,19 @@
       '',
       '  生成フロー:',
       '  1. GitHub Actionsで Rust を .wasm に本物ビルド',
-      '  2. wasm-bindgen JS を取得',
-      '  3. .wasm を base64 化',
-      '  4. ' + names.loaderJs + ' を生成',
-      '  5. ' + names.embeddedLoaderJs + ' を生成',
-      '  6. 5ファイルをZIP化',
-      '  7. 同じ内容を画面にも分別表示',
+      '  2. ' + names.wasm + ' を生成',
+      '  3. ' + names.loaderJs + ' を生成',
+      '  4. ' + names.wasm + ' を base64 化して ' + names.base64 + ' を生成',
+      '  5. base64 と loader.js を元に ' + names.embeddedLoaderJs + ' を生成',
+      '  6. 画面表示用データとZIP生成用データへ並列で渡す',
       '',
       '  ZIP内の想定ファイル:',
       '  - ' + names.wasm,
-      '  - ' + names.wasmBase64,
-      '  - ' + names.bindgenJs,
       '  - ' + names.loaderJs,
       '  - ' + names.embeddedLoaderJs,
+      '  - ' + names.base64,
       '  - ' + names.buildLog,
+      '  - ' + names.buildRequest,
       '*/'
     ].join('\n');
   }
@@ -441,11 +440,11 @@
       '',
       'ZIP内:',
       '- ' + names.wasm,
-      '- ' + names.wasmBase64,
-      '- ' + names.bindgenJs,
       '- ' + names.loaderJs,
       '- ' + names.embeddedLoaderJs,
+      '- ' + names.base64,
       '- ' + names.buildLog,
+      '- ' + names.buildRequest,
       '',
       'buildRequestJson:',
       JSON.stringify(buildRequest, null, 2)
@@ -474,10 +473,11 @@
     logLines.push('');
     logLines.push('expectedArtifacts:');
     logLines.push('- ' + names.wasm);
-    logLines.push('- ' + names.wasmBase64);
-    logLines.push('- ' + names.bindgenJs);
     logLines.push('- ' + names.loaderJs);
     logLines.push('- ' + names.embeddedLoaderJs);
+    logLines.push('- ' + names.base64);
+    logLines.push('- ' + names.buildLog);
+    logLines.push('- ' + names.buildRequest);
     logLines.push('- ' + names.zip);
     logLines.push('');
 
@@ -502,7 +502,7 @@
 
     const outputFiles = [
       {
-        name: 'build-request.json',
+        name: names.buildRequest,
         type: 'application/json;charset=utf-8',
         content: jsonText
       },
@@ -534,6 +534,7 @@
       '<p><strong>output-mode:</strong> ' + escapeHtml(input.outputMode) + '</p>',
       '<p><strong>表示対象:</strong> ' + escapeHtml(names.embeddedLoaderJs) + '</p>',
       '<p><strong>ZIP名:</strong> ' + escapeHtml(names.zip) + '</p>',
+      '<p><strong>ZIP内:</strong> ' + escapeHtml(names.wasm) + ' / ' + escapeHtml(names.loaderJs) + ' / ' + escapeHtml(names.embeddedLoaderJs) + ' / ' + escapeHtml(names.base64) + ' / ' + escapeHtml(names.buildLog) + ' / ' + escapeHtml(names.buildRequest) + '</p>',
       '<p><strong>次の操作:</strong> GitHub Actions の buildRequestJson 入力欄へ JSON を貼り付けて実行してください。</p>',
       '</div>'
     ].join('');
@@ -715,7 +716,7 @@
       return;
     }
 
-    showStatus('このページ単体では本物ZIPは生成されません。GitHub Actions実行後のArtifactsから取得します。');
+    showStatus('本物ZIPはGitHub Actions実行後のArtifactsから取得します。');
   }
 
   async function copyOutput() {
