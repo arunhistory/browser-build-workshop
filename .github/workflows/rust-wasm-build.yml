@@ -12,6 +12,9 @@ permissions:
   contents: read
   actions: read
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build Rust to Wasm
@@ -30,7 +33,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install wasm-bindgen CLI
         run: cargo install wasm-bindgen-cli
@@ -45,8 +48,7 @@ jobs:
       - name: Run Rust Wasm build
         env:
           BUILD_REQUEST_JSON: ${{ inputs.buildRequestJson }}
-        run: |
-          node tools/build-rust-wasm.mjs
+        run: node tools/build-rust-wasm.mjs
 
       - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
