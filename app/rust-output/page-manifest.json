@@ -1,0 +1,14 @@
+{
+  "ok": false,
+  "status": "waiting",
+  "buildId": "",
+  "projectName": "",
+  "generatedAt": "",
+  "displayFiles": {
+    "buildLog": "build-log.txt",
+    "outputSummary": "output-summary.txt",
+    "embeddedLoader": ""
+  },
+  "zipFile": "",
+  "message": "まだGitHub Actionsの本物ビルド成果物は配置されていません。"
+}
