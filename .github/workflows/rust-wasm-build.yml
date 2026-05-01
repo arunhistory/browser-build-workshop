@@ -8,18 +8,25 @@ on:
         required: true
         type: string
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 permissions:
   contents: read
   actions: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: rust-wasm-build-pages
+  cancel-in-progress: true
 
 jobs:
   build:
     name: Build Rust to Wasm
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
@@ -44,11 +51,23 @@ jobs:
           cargo --version
           node --version
           wasm-bindgen --version
+          zip --version
 
       - name: Run Rust Wasm build
         env:
           BUILD_REQUEST_JSON: ${{ inputs.buildRequestJson }}
         run: node tools/build-rust-wasm.mjs
+
+      - name: Prepare page output directory
+        run: |
+          rm -rf app/rust-output
+          mkdir -p app/rust-output
+          cp -r .generated/dist/. app/rust-output/
+
+      - name: Show generated page files
+        run: |
+          echo "=== app/rust-output ==="
+          find app/rust-output -maxdepth 2 -type f -print
 
       - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
@@ -56,3 +75,15 @@ jobs:
           name: rust-wasm-build
           path: .generated/dist
           if-no-files-found: error
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload GitHub Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
