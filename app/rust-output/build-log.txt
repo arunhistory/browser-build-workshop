@@ -1,0 +1,4 @@
+=== Rust Wasm Build ===
+status: waiting
+
+まだGitHub Actionsの本物ビルドは実行されていません。
