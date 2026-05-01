@@ -26,7 +26,7 @@
         <p>
           Rust を Wasm へ変換するためのビルド作業ページ。
           GitHub Actions に投入する buildRequestJson を生成し、
-          実行後の成果物として build-log、出力内容、〇〇.embedded-loader.js、ZIP を扱います。
+          Actions 実行後の成果物 ZIP、build-log.txt、embedded-loader.js をページに読み込んで確認します。
         </p>
       </div>
     </section>
@@ -180,7 +180,7 @@ pub fn greet(name: &str) -> String {
 
         <div class="notice">
           このページでは GitHub Actions に投入する buildRequestJson を生成します。
-          実際の Rust → Wasm ビルド、base64化、embedded-loader.js生成、ZIP生成は GitHub Actions 側で実行します。
+          実際の Rust → Wasm ビルドは GitHub Actions 側で実行します。
         </div>
       </article>
 
@@ -216,7 +216,43 @@ pub fn greet(name: &str) -> String {
             class="output-box file-output-box"
             spellcheck="false"
             readonly
-          >GitHub Actions 実行後、ここに 〇〇.embedded-loader.js の内容を表示します。</textarea>
+          >GitHub Actions 実行後、ここに本物の embedded-loader.js の内容を表示します。</textarea>
+        </div>
+
+        <div class="field">
+          <label>GitHub Actions 成果物読み込み</label>
+
+          <div class="field">
+            <label for="artifactZipInput">成果物ZIP</label>
+            <input
+              type="file"
+              id="artifactZipInput"
+              accept=".zip,application/zip,application/x-zip-compressed"
+            />
+          </div>
+
+          <div class="field">
+            <label for="artifactLogInput">build-log.txt</label>
+            <input
+              type="file"
+              id="artifactLogInput"
+              accept=".txt,text/plain"
+            />
+          </div>
+
+          <div class="field">
+            <label for="artifactEmbeddedLoaderInput">〇〇.embedded-loader.js</label>
+            <input
+              type="file"
+              id="artifactEmbeddedLoaderInput"
+              accept=".js,text/javascript,application/javascript"
+            />
+          </div>
+
+          <div class="notice">
+            GitHub Actions 実行後、Artifacts から取得したファイルをここに読み込ませます。
+            ZIPはダウンロード用に保持し、embedded-loader.js は画面表示とコピーに使います。
+          </div>
         </div>
 
         <div class="field">
@@ -227,7 +263,7 @@ pub fn greet(name: &str) -> String {
             </button>
           </div>
           <div class="notice" id="zipNotice">
-            ZIPには、プロジェクト名.wasm、プロジェクト名.loader.js、プロジェクト名.embedded-loader.js、プロジェクト名.base64、build-log.txt、build-request.json を入れます。
+            まだZIPは読み込まれていません。
           </div>
         </div>
 
@@ -244,8 +280,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          画面表示は、ビルドログ、出力内容、〇〇.embedded-loader.js、ZIPダウンロードに絞ります。
-          .wasm本体とbase64単体はZIP内に保存し、画面には直接表示しません。
+          画面に表示する本物成果物は embedded-loader.js です。
+          .wasm 本体と base64 は ZIP 内で保持します。
         </div>
       </article>
     </section>
