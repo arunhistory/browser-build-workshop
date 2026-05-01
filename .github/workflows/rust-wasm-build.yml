@@ -9,14 +9,8 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
   actions: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: rust-wasm-build-pages
-  cancel-in-progress: true
 
 jobs:
   build:
@@ -24,9 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repository
@@ -62,28 +55,30 @@ jobs:
         run: |
           rm -rf app/rust-output
           mkdir -p app/rust-output
-          cp -r .generated/dist/. app/rust-output/
+          cp -R .generated/dist/. app/rust-output/
 
-      - name: Show generated page files
+      - name: Show page output files
         run: |
           echo "=== app/rust-output ==="
           find app/rust-output -maxdepth 2 -type f -print
+
+      - name: Commit generated page output
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add app/rust-output
+
+          if git diff --cached --quiet; then
+            echo "No generated output changes."
+          else
+            git commit -m "Update Rust Wasm build output"
+            git push
+          fi
 
       - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rust-wasm-build
-          path: .generated/dist
+          path: app/rust-output
           if-no-files-found: error
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload GitHub Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-
-      - name: Deploy GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
