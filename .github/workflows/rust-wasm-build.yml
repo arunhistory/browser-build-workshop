@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 jobs:
@@ -33,7 +33,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
 
       - name: Install wasm-bindgen CLI
         run: cargo install wasm-bindgen-cli
@@ -44,41 +44,20 @@ jobs:
           cargo --version
           node --version
           wasm-bindgen --version
-          zip --version
 
       - name: Run Rust Wasm build
         env:
           BUILD_REQUEST_JSON: ${{ inputs.buildRequestJson }}
         run: node tools/build-rust-wasm.mjs
 
-      - name: Prepare page output directory
-        run: |
-          rm -rf app/rust-output
-          mkdir -p app/rust-output
-          cp -R .generated/dist/. app/rust-output/
-
-      - name: Show page output files
-        run: |
-          echo "=== app/rust-output ==="
-          find app/rust-output -maxdepth 2 -type f -print
-
-      - name: Commit generated page output
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git add app/rust-output
-
-          if git diff --cached --quiet; then
-            echo "No generated output changes."
-          else
-            git commit -m "Update Rust Wasm build output"
-            git push
-          fi
+      - name: Publish Rust output for page
+        run: node tools/publish-rust-output.mjs
 
       - name: Upload generated artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rust-wasm-build
-          path: app/rust-output
+          path: |
+            .generated/dist
+            rust-output
           if-no-files-found: error
