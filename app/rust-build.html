@@ -25,8 +25,7 @@
         <h1>Rust Build</h1>
         <p>
           Rust を Wasm へ変換するためのビルド作業ページ。
-          GitHub Actions に投入する buildRequestJson を生成し、
-          実行後の成果物として ZIP と 〇〇.embedded-loader.js を扱います。
+          buildRequestJson を生成し、GitHub Actions の本物ビルド成果物を読み込んで表示します。
         </p>
       </div>
     </section>
@@ -179,8 +178,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          このページでは GitHub Actions に投入する buildRequestJson を生成します。
-          実際の Rust → Wasm ビルドは GitHub Actions 側で実行します。
+          このページで生成した buildRequestJson を GitHub Actions に渡します。
+          Actions 実行後の成果物JSONを下の欄へ貼り付けることで、画面に本物成果物を反映します。
         </div>
       </article>
 
@@ -190,17 +189,9 @@ pub fn greet(name: &str) -> String {
         <div class="status" id="buildStatus">状態: 待機中</div>
 
         <div class="field">
-          <label>進捗</label>
-          <div class="progress-wrap">
-            <div class="progress-bar">
-              <div
-                id="buildProgressBar"
-                class="progress-fill"
-                style="width: 0%;"
-              ></div>
-            </div>
-            <div id="buildProgressText" class="progress-text">待機中</div>
-          </div>
+          <label for="buildProgress">進捗</label>
+          <progress id="buildProgress" value="0" max="100"></progress>
+          <div class="notice" id="buildProgressText">まだ処理は開始されていません。</div>
         </div>
 
         <div class="field">
@@ -230,7 +221,22 @@ pub fn greet(name: &str) -> String {
             class="output-box file-output-box"
             spellcheck="false"
             readonly
-          >GitHub Actions 実行後、ここに 〇〇.embedded-loader.js の内容を表示します。</textarea>
+          >まだ embedded-loader.js は読み込まれていません。</textarea>
+        </div>
+
+        <div class="field">
+          <label for="artifactResultJson">GitHub Actions成果物JSON</label>
+          <textarea
+            id="artifactResultJson"
+            class="output-box"
+            spellcheck="false"
+            placeholder="GitHub Actions が出力した成果物JSONをここに貼り付ける"
+          ></textarea>
+        </div>
+
+        <div class="button-row">
+          <button class="btn btn-secondary" id="loadArtifactsButton" type="button">成果物を読み込む</button>
+          <button class="btn btn-muted" id="clearArtifactsButton" type="button">成果物をクリア</button>
         </div>
 
         <div class="field">
@@ -241,7 +247,7 @@ pub fn greet(name: &str) -> String {
             </button>
           </div>
           <div class="notice" id="zipNotice">
-            ZIP成果物が読み込まれていない場合は、ボタンを押すと「ZIPがありません」と表示します。
+            ZIP成果物が読み込まれると、ここからダウンロードできます。
           </div>
         </div>
 
@@ -258,8 +264,8 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          表示する成果物は、ビルドログ、出力内容、〇〇.embedded-loader.js、ZIPダウンロードに絞ります。
-          .wasm本体とbase64はZIP内で扱い、画面表示には出しません。
+          表示する本物成果物は、ビルドログ、出力内容、embedded-loader.js、ZIPダウンロードです。
+          .wasm本体とbase64はZIP内に保存し、画面表示では直接扱いません。
         </div>
       </article>
     </section>
