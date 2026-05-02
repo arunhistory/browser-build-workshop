@@ -4,14 +4,7 @@
   const state = {
     subFiles: [],
     lastBuildResult: null,
-    isRunning: false,
-
-    loadedManifest: null,
-    loadedLogText: '',
-    loadedOutputText: '',
-    loadedEmbeddedLoaderText: '',
-    loadedZipUrl: '',
-    loadedZipName: ''
+    isRunning: false
   };
 
   function getEl(id) {
@@ -175,6 +168,25 @@
     const label = document.querySelector('label[for="' + forId + '"]');
     if (label) {
       label.textContent = text;
+      return;
+    }
+
+    if (forId === 'embeddedLoaderOutput') {
+      setText('embeddedLoaderLabel', text);
+    }
+  }
+
+  function setProgress(percent, message) {
+    const safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
+    const bar = getEl('buildProgressBar');
+    const text = getEl('buildProgressText');
+
+    if (bar) {
+      bar.style.width = String(safePercent) + '%';
+    }
+
+    if (text) {
+      text.textContent = String(safePercent) + '% - ' + (message || '');
     }
   }
 
@@ -189,48 +201,20 @@
       embeddedLoaderJs: baseName + '.embedded-loader.js',
       zip: baseName + '-wasm-build.zip',
       buildLog: 'build-log.txt',
-      outputSummary: 'output-summary.txt',
-      pageManifest: 'page-manifest.json'
+      buildRequest: 'build-request.json',
+      outputSummary: 'output-summary.txt'
     };
-  }
-
-  function resetLoadedArtifacts() {
-    state.loadedManifest = null;
-    state.loadedLogText = '';
-    state.loadedOutputText = '';
-    state.loadedEmbeddedLoaderText = '';
-    state.loadedZipUrl = '';
-    state.loadedZipName = '';
   }
 
   function clearGeneratedOutputs() {
     const names = getExpectedArtifactNames();
 
-    resetLoadedArtifacts();
-
     setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
 
     showOutput('まだ出力はありません。');
-    showEmbeddedLoader(
-      'GitHub Actions 実行後、「生成済み成果物を読み込む」で本物の embedded-loader.js を表示します。'
-    );
+    showEmbeddedLoader('GitHub Actions 実行後、ここに ' + names.embeddedLoaderJs + ' の内容を表示します。');
     setHtml('buildSummary', 'まだ要約はありません。');
-
-    enableResultButtons();
-  }
-
-  function enableResultButtons() {
-    const hasLocalBuildRequest = !!(state.lastBuildResult && state.lastBuildResult.outputText);
-    const hasLoadedOutput = !!state.loadedOutputText;
-    const hasLoadedLog = !!state.loadedLogText;
-    const hasLoadedEmbedded = !!state.loadedEmbeddedLoaderText;
-    const hasLoadedZip = !!state.loadedZipUrl;
-
-    setDisabled('downloadOutputButton', !(hasLoadedOutput || hasLocalBuildRequest));
-    setDisabled('downloadLogButton', !hasLoadedLog && !(state.lastBuildResult && state.lastBuildResult.logText));
-    setDisabled('copyOutputButton', !(hasLoadedOutput || hasLocalBuildRequest));
-    setDisabled('copyEmbeddedLoaderButton', !hasLoadedEmbedded);
-    setDisabled('downloadZipButton', !hasLoadedZip);
+    setProgress(0, '待機中');
   }
 
   function readSubFileName() {
@@ -434,22 +418,27 @@
     return [
       'GitHub Actions 手動実行手順',
       '',
-      '1. この buildRequestJson をコピーする',
-      '2. GitHub の対象リポジトリを開く',
-      '3. Actions を開く',
-      '4. Rust Wasm Build を選ぶ',
-      '5. Run workflow を押す',
-      '6. buildRequestJson にJSONを貼り付ける',
-      '7. 実行後、成果物ページに反映されたファイルを読み込む',
+      '1. GitHub の対象リポジトリを開く',
+      '2. Actions を開く',
+      '3. Rust Wasm Build を選ぶ',
+      '4. Run workflow を押す',
+      '5. buildRequestJson に、このJSONをそのまま貼り付ける',
+      '6. 実行後、Artifacts から成果物を取得する',
       '',
-      '画面表示:',
-      '- build-log.txt',
-      '- output-summary.txt',
+      '画面表示方針:',
+      '- ビルドログ',
+      '- 出力内容',
       '- ' + names.embeddedLoaderJs,
       '- ZIPダウンロードボタン',
       '',
-      'ZIP:',
-      '- ' + names.zip,
+      'ZIP内:',
+      '- ' + names.wasm,
+      '- ' + names.wasmBase64,
+      '- ' + names.bindgenJs,
+      '- ' + names.loaderJs,
+      '- ' + names.embeddedLoaderJs,
+      '- ' + names.buildLog,
+      '- ' + names.buildRequest,
       '',
       'buildRequestJson:',
       JSON.stringify(buildRequest, null, 2)
@@ -503,6 +492,28 @@
       logLines.push('- なし');
     }
 
+    const outputSummary = [
+      '=== Rust Wasm Request Summary ===',
+      'status: ' + (validation.ok ? 'ready' : 'error'),
+      'projectName: ' + input.projectName,
+      'embeddedLoader: ' + names.embeddedLoaderJs,
+      'zip: ' + names.zip,
+      '',
+      'この段階では GitHub Actions に渡す JSON の生成までです。',
+      '本物の .wasm / embedded-loader.js / ZIP は GitHub Actions 実行後に生成されます。'
+    ].join('\n');
+
+    const embeddedLoaderMessage = [
+      '/*',
+      '  ' + names.embeddedLoaderJs,
+      '',
+      '  まだ本物の embedded-loader.js は生成されていません。',
+      '  先に buildRequestJson を GitHub Actions に渡して、本物ビルドを実行してください。',
+      '',
+      '  成功後に GitHub Actions の成果物から ' + names.embeddedLoaderJs + ' を取得します。',
+      '*/'
+    ].join('\n');
+
     const summaryHtml = [
       '<div class="rust-real-compile-summary">',
       '<p><strong>状態:</strong> ' + escapeHtml(validation.ok ? 'GitHub Actions投入準備完了' : '入力エラーあり') + '</p>',
@@ -511,9 +522,9 @@
       '<p><strong>entry:</strong> ' + escapeHtml(input.entryPoint) + '</p>',
       '<p><strong>build-mode:</strong> ' + escapeHtml(input.buildMode) + '</p>',
       '<p><strong>output-mode:</strong> ' + escapeHtml(input.outputMode) + '</p>',
-      '<p><strong>表示対象:</strong> ' + escapeHtml(names.embeddedLoaderJs) + '</p>',
-      '<p><strong>ZIP名:</strong> ' + escapeHtml(names.zip) + '</p>',
-      '<p><strong>次の操作:</strong> GitHub Actions の buildRequestJson 入力欄へ JSON を貼り付けて実行してください。</p>',
+      '<p><strong>表示予定:</strong> ' + escapeHtml(names.embeddedLoaderJs) + '</p>',
+      '<p><strong>ZIP予定:</strong> ' + escapeHtml(names.zip) + '</p>',
+      '<p><strong>次:</strong> GitHub Actions の buildRequestJson 入力欄へ JSON を貼り付けて実行。</p>',
       '</div>'
     ].join('');
 
@@ -528,9 +539,25 @@
       buildRequest: buildRequest,
       errors: validation.errors,
       warnings: validation.warnings,
+      outputFiles: [
+        {
+          name: 'build-request.json',
+          type: 'application/json;charset=utf-8',
+          content: jsonText
+        },
+        {
+          name: 'how-to-run.txt',
+          type: 'text/plain;charset=utf-8',
+          content: howToRunText
+        }
+      ],
       logText: logLines.join('\n'),
-      outputText: jsonText,
-      howToRunText: howToRunText,
+      outputText: outputSummary + '\n\n' + jsonText,
+      buildRequestText: jsonText,
+      embeddedLoaderText: embeddedLoaderMessage,
+      embeddedLoaderIsReal: false,
+      zipBlob: null,
+      zipFileName: names.zip,
       summaryHtml: summaryHtml
     };
   }
@@ -539,16 +566,11 @@
     setDisabled('runBuildButton', locked);
     setDisabled('addSubFileButton', locked);
     setDisabled('clearAllButton', locked);
-
-    if (locked) {
-      setDisabled('downloadOutputButton', true);
-      setDisabled('downloadLogButton', true);
-      setDisabled('copyOutputButton', true);
-      setDisabled('downloadZipButton', true);
-      setDisabled('copyEmbeddedLoaderButton', true);
-    } else {
-      enableResultButtons();
-    }
+    setDisabled('downloadOutputButton', locked);
+    setDisabled('downloadLogButton', locked);
+    setDisabled('copyOutputButton', locked);
+    setDisabled('downloadZipButton', locked);
+    setDisabled('copyEmbeddedLoaderButton', locked);
   }
 
   async function runBuild() {
@@ -559,8 +581,7 @@
 
     state.isRunning = true;
     lockUi(true);
-    resetLoadedArtifacts();
-
+    setProgress(5, '入力を読み取り中');
     showStatus('ビルド要求を生成中...');
     showLog('Rust本物ビルド用の要求を生成します...');
     showOutput('');
@@ -568,27 +589,32 @@
     setHtml('buildSummary', '');
 
     try {
+      setProgress(25, '入力検証中');
       const input = collectInput();
+
+      setProgress(45, 'buildRequestJson 生成中');
       const result = makeLocalBuildRequestResult(input);
 
+      setProgress(70, '画面表示へ反映中');
       state.lastBuildResult = result;
 
       setLabelTextByFor('embeddedLoaderOutput', result.names.embeddedLoaderJs);
 
       showLog(result.logText || '');
       showOutput(result.outputText || '');
-      showEmbeddedLoader(
-        'GitHub Actions 実行後、「生成済み成果物を読み込む」で本物の embedded-loader.js を表示します。'
-      );
+      showEmbeddedLoader(result.embeddedLoaderText || '');
       setHtml('buildSummary', result.summaryHtml || '');
 
       if (result.ok) {
+        setProgress(100, 'buildRequestJson 生成完了');
         showStatus('GitHub Actions用JSONを生成しました');
       } else {
+        setProgress(100, '入力エラーあり');
         showStatus('入力エラーがあります');
       }
     } catch (error) {
       state.lastBuildResult = null;
+      setProgress(100, '例外発生');
       showStatus('ビルド要求生成中に例外が発生しました');
       showLog(String(error && error.stack ? error.stack : error));
       showOutput('');
@@ -600,130 +626,9 @@
     }
   }
 
-  function getRustOutputBaseUrl() {
-    return new URL('./rust-output/', global.location.href).toString();
-  }
-
-  async function fetchText(url) {
-    const response = await fetch(url, { cache: 'no-store' });
-
-    if (!response.ok) {
-      throw new Error(url + ' の読み込みに失敗しました。status=' + response.status);
-    }
-
-    return await response.text();
-  }
-
-  async function fetchJson(url) {
-    const text = await fetchText(url);
-    return JSON.parse(text);
-  }
-
-  function pickManifestFile(manifest, keys, fallback) {
-    for (const key of keys) {
-      if (manifest && typeof manifest[key] === 'string' && manifest[key]) {
-        return manifest[key];
-      }
-    }
-
-    return fallback;
-  }
-
-  async function loadGeneratedArtifacts() {
-    if (state.isRunning) {
-      showStatus('処理中です');
-      return;
-    }
-
-    state.isRunning = true;
-    lockUi(true);
-
-    showStatus('生成済み成果物を読み込み中...');
-    showLog('GitHub Actions が生成した成果物を読み込みます...');
-    showOutput('');
-    showEmbeddedLoader('');
-
-    try {
-      const baseUrl = getRustOutputBaseUrl();
-      const manifest = await fetchJson(baseUrl + 'page-manifest.json');
-
-      const projectName = normalizeProjectName(manifest.projectName || safeValue('projectName', 'sample-rust-project'));
-      const names = getExpectedArtifactNames(projectName);
-
-      const buildLogName = pickManifestFile(
-        manifest,
-        ['buildLog', 'buildLogFile', 'logFile'],
-        names.buildLog
-      );
-
-      const outputSummaryName = pickManifestFile(
-        manifest,
-        ['outputSummary', 'outputSummaryFile', 'summaryFile'],
-        names.outputSummary
-      );
-
-      const embeddedLoaderName = pickManifestFile(
-        manifest,
-        ['embeddedLoader', 'embeddedLoaderFile', 'embeddedLoaderJs'],
-        names.embeddedLoaderJs
-      );
-
-      const zipFileName = pickManifestFile(
-        manifest,
-        ['zipFile', 'zip', 'zipName'],
-        names.zip
-      );
-
-      const buildLogText = await fetchText(baseUrl + buildLogName);
-      const outputSummaryText = await fetchText(baseUrl + outputSummaryName);
-      const embeddedLoaderText = await fetchText(baseUrl + embeddedLoaderName);
-
-      state.loadedManifest = manifest;
-      state.loadedLogText = buildLogText;
-      state.loadedOutputText = outputSummaryText;
-      state.loadedEmbeddedLoaderText = embeddedLoaderText;
-      state.loadedZipUrl = baseUrl + zipFileName;
-      state.loadedZipName = zipFileName;
-
-      setLabelTextByFor('embeddedLoaderOutput', embeddedLoaderName);
-
-      showLog(buildLogText);
-      showOutput(outputSummaryText);
-      showEmbeddedLoader(embeddedLoaderText);
-
-      setHtml(
-        'buildSummary',
-        [
-          '<div class="rust-real-compile-summary">',
-          '<p><strong>状態:</strong> GitHub Actions成果物を読み込みました</p>',
-          '<p><strong>project:</strong> ' + escapeHtml(projectName) + '</p>',
-          '<p><strong>buildId:</strong> ' + escapeHtml(manifest.buildId || '-') + '</p>',
-          '<p><strong>log:</strong> ' + escapeHtml(buildLogName) + '</p>',
-          '<p><strong>output:</strong> ' + escapeHtml(outputSummaryName) + '</p>',
-          '<p><strong>embedded-loader:</strong> ' + escapeHtml(embeddedLoaderName) + '</p>',
-          '<p><strong>zip:</strong> ' + escapeHtml(zipFileName) + '</p>',
-          '</div>'
-        ].join('')
-      );
-
-      showStatus('生成済み成果物を読み込みました');
-    } catch (error) {
-      resetLoadedArtifacts();
-      showStatus('生成済み成果物の読み込みに失敗しました');
-      showLog(String(error && error.stack ? error.stack : error));
-      showOutput('');
-      showEmbeddedLoader('');
-      setHtml('buildSummary', '成果物の読み込みに失敗しました。');
-    } finally {
-      state.isRunning = false;
-      lockUi(false);
-    }
-  }
-
   function clearAll() {
     state.subFiles = [];
     state.lastBuildResult = null;
-    resetLoadedArtifacts();
 
     setValue('projectName', 'sample-rust-project');
     setValue('entryType', 'lib.rs');
@@ -772,7 +677,10 @@
   }
 
   function downloadByAnchor(filename, content, mimeType) {
-    const blob = new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+    const blob = content instanceof Blob
+      ? content
+      : new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
+
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
 
@@ -788,35 +696,29 @@
   }
 
   function downloadOutput() {
-    const text = state.loadedOutputText || (state.lastBuildResult && state.lastBuildResult.outputText);
-
-    if (!text) {
-      showStatus('保存する出力内容がありません');
+    if (!state.lastBuildResult || !state.lastBuildResult.buildRequestText) {
+      showStatus('保存する出力がありません');
       return;
     }
 
-    const filename = state.loadedOutputText ? 'output-summary.txt' : 'build-request.json';
-
     downloadByAnchor(
-      filename,
-      text,
-      state.loadedOutputText ? 'text/plain;charset=utf-8' : 'application/json;charset=utf-8'
+      'build-request.json',
+      state.lastBuildResult.buildRequestText,
+      'application/json;charset=utf-8'
     );
 
-    showStatus(filename + ' を保存しました');
+    showStatus('build-request.json を保存しました');
   }
 
   function downloadLog() {
-    const text = state.loadedLogText || (state.lastBuildResult && state.lastBuildResult.logText);
-
-    if (!text) {
+    if (!state.lastBuildResult || !state.lastBuildResult.logText) {
       showStatus('保存するログがありません');
       return;
     }
 
     downloadByAnchor(
       'build-log.txt',
-      text,
+      state.lastBuildResult.logText,
       'text/plain;charset=utf-8'
     );
 
@@ -824,48 +726,53 @@
   }
 
   function downloadZip() {
-    if (!state.loadedZipUrl) {
-      showStatus('ZIPがまだ読み込まれていません。先に「生成済み成果物を読み込む」を押してください。');
+    if (!state.lastBuildResult) {
+      showStatus('ZIPがありません。先にビルドJSONを生成してください。');
       return;
     }
 
-    const anchor = document.createElement('a');
-    anchor.href = state.loadedZipUrl;
-    anchor.download = state.loadedZipName || 'rust-wasm-build.zip';
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
+    if (!state.lastBuildResult.zipBlob) {
+      showStatus('ZIPがありません。GitHub Actions 実行後の成果物を読み込むまではダウンロードできません。');
+      return;
+    }
 
-    showStatus('ZIPダウンロードを開始しました');
+    downloadByAnchor(
+      state.lastBuildResult.zipFileName || 'rust-wasm-build.zip',
+      state.lastBuildResult.zipBlob,
+      'application/zip'
+    );
+
+    showStatus('ZIPをダウンロードしました');
   }
 
   async function copyOutput() {
-    const text = state.loadedOutputText || (state.lastBuildResult && state.lastBuildResult.outputText);
-
-    if (!text) {
-      showStatus('コピーする出力内容がありません');
+    if (!state.lastBuildResult || !state.lastBuildResult.outputText) {
+      showStatus('コピーする出力がありません');
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(state.lastBuildResult.outputText);
       showStatus('出力内容をコピーしました');
     } catch (error) {
-      showStatus('出力内容のコピーに失敗しました');
+      showStatus('コピーに失敗しました');
       showLog(String(error && error.stack ? error.stack : error));
     }
   }
 
   async function copyEmbeddedLoader() {
-    const text = state.loadedEmbeddedLoaderText;
+    if (!state.lastBuildResult || !state.lastBuildResult.embeddedLoaderText) {
+      showStatus('コピーする embedded-loader.js がありません');
+      return;
+    }
 
-    if (!text) {
-      showStatus('コピーする embedded-loader.js がありません。先に成果物を読み込んでください。');
+    if (!state.lastBuildResult.embeddedLoaderIsReal) {
+      showStatus('本物の embedded-loader.js がありません。GitHub Actions 実行後の成果物を読み込んでください。');
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(state.lastBuildResult.embeddedLoaderText);
       showStatus('embedded-loader.js をコピーしました');
     } catch (error) {
       showStatus('embedded-loader.js のコピーに失敗しました');
@@ -882,7 +789,6 @@
     const copyOutputButton = getEl('copyOutputButton');
     const downloadZipButton = getEl('downloadZipButton');
     const copyEmbeddedLoaderButton = getEl('copyEmbeddedLoaderButton');
-    const loadGeneratedArtifactsButton = getEl('loadGeneratedArtifactsButton');
 
     if (addSubFileButton) addSubFileButton.addEventListener('click', addSubFile);
     if (runBuildButton) runBuildButton.addEventListener('click', runBuild);
@@ -892,7 +798,6 @@
     if (copyOutputButton) copyOutputButton.addEventListener('click', copyOutput);
     if (downloadZipButton) downloadZipButton.addEventListener('click', downloadZip);
     if (copyEmbeddedLoaderButton) copyEmbeddedLoaderButton.addEventListener('click', copyEmbeddedLoader);
-    if (loadGeneratedArtifactsButton) loadGeneratedArtifactsButton.addEventListener('click', loadGeneratedArtifacts);
   }
 
   function bindSubFileActions() {
@@ -941,10 +846,11 @@
     if (!projectName) return;
 
     projectName.addEventListener('input', function () {
-      if (state.lastBuildResult || state.loadedEmbeddedLoaderText) return;
+      if (state.lastBuildResult) return;
 
       const names = getExpectedArtifactNames(projectName.value);
       setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
+      showEmbeddedLoader('GitHub Actions 実行後、ここに ' + names.embeddedLoaderJs + ' の内容を表示します。');
     });
   }
 
@@ -958,7 +864,8 @@
     if (!getEl('embeddedLoaderOutput')) console.warn('embeddedLoaderOutput フィールドが見つかりません');
     if (!getEl('downloadZipButton')) console.warn('downloadZipButton が見つかりません');
     if (!getEl('copyEmbeddedLoaderButton')) console.warn('copyEmbeddedLoaderButton が見つかりません');
-    if (!getEl('loadGeneratedArtifactsButton')) console.warn('loadGeneratedArtifactsButton が見つかりません');
+    if (!getEl('buildProgressBar')) console.warn('buildProgressBar が見つかりません');
+    if (!getEl('buildProgressText')) console.warn('buildProgressText が見つかりません');
   }
 
   function init() {
