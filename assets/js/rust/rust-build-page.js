@@ -4,9 +4,7 @@
   const state = {
     subFiles: [],
     lastBuildResult: null,
-    isRunning: false,
-    zipBlob: null,
-    zipName: ''
+    isRunning: false
   };
 
   function getEl(id) {
@@ -21,22 +19,30 @@
 
   function setValue(id, value) {
     const el = getEl(id);
-    if (el) el.value = value;
+    if (el) {
+      el.value = value;
+    }
   }
 
   function setText(id, value) {
     const el = getEl(id);
-    if (el) el.textContent = value;
+    if (el) {
+      el.textContent = value;
+    }
   }
 
   function setHtml(id, value) {
     const el = getEl(id);
-    if (el) el.innerHTML = value;
+    if (el) {
+      el.innerHTML = value;
+    }
   }
 
   function setDisabled(id, disabled) {
     const el = getEl(id);
-    if (el) el.disabled = !!disabled;
+    if (el) {
+      el.disabled = !!disabled;
+    }
   }
 
   function setTextareaOrText(id, value) {
@@ -86,23 +92,9 @@
 
   function setLabelTextByFor(forId, text) {
     const label = document.querySelector('label[for="' + forId + '"]');
-    if (label) label.textContent = text;
-  }
-
-  function updateProgress(percent, message) {
-    const bar = getEl('buildProgressBar');
-    const text = getEl('buildProgressText');
-
-    if (bar) {
-      bar.value = percent;
-      bar.max = 100;
+    if (label) {
+      label.textContent = text;
     }
-
-    if (text) {
-      text.textContent = String(percent) + '% - ' + message;
-    }
-
-    showStatus(message);
   }
 
   function normalizeProjectName(raw) {
@@ -116,23 +108,6 @@
       .replace(/^-|-$/g, '');
 
     return normalized || 'sample-rust-project';
-  }
-
-  function normalizeEntryPoint(raw) {
-    const value = trimOrEmpty(raw || 'lib.rs') || 'lib.rs';
-
-    if (value === 'lib.rs') return 'src/lib.rs';
-    if (value === 'main.rs') return 'src/main.rs';
-    if (value.startsWith('/')) return value.slice(1);
-    if (value.startsWith('src/')) return value;
-
-    return 'src/' + value;
-  }
-
-  function inferEntryTarget(entryPoint) {
-    const value = normalizeEntryPoint(entryPoint).toLowerCase();
-    if (value.endsWith('main.rs')) return 'main';
-    return 'lib';
   }
 
   function normalizeOutputMode(raw) {
@@ -152,8 +127,30 @@
     return '2021';
   }
 
+  function normalizeEntryPoint(raw) {
+    const value = trimOrEmpty(raw || 'lib.rs') || 'lib.rs';
+
+    if (value === 'lib.rs') return 'src/lib.rs';
+    if (value === 'main.rs') return 'src/main.rs';
+
+    if (value.startsWith('/')) return value.slice(1);
+    if (value.startsWith('src/')) return value;
+
+    return 'src/' + value;
+  }
+
+  function inferEntryTarget(entryPoint) {
+    const value = normalizeEntryPoint(entryPoint).toLowerCase();
+    if (value.endsWith('main.rs')) return 'main';
+    return 'lib';
+  }
+
   function normalizeCrateType(raw, entryPoint) {
-    if (inferEntryTarget(entryPoint) === 'main') return 'bin';
+    const entryTarget = inferEntryTarget(entryPoint);
+
+    if (entryTarget === 'main') {
+      return 'bin';
+    }
 
     const value = trimOrEmpty(raw || 'cdylib').toLowerCase();
 
@@ -169,44 +166,226 @@
 
     if (!value) return '';
     if (value.includes('..')) return '';
-    if (value.startsWith('src/')) return value;
 
+    if (value.startsWith('src/')) return value;
     return 'src/' + value;
   }
 
-  function getExpectedArtifactNames(projectName) {
-    const baseName = normalizeProjectName(projectName || safeValue('projectName', 'sample-rust-project'));
+  function getNames(projectName) {
+    const base = normalizeProjectName(projectName || safeValue('projectName', 'sample-rust-project'));
 
     return {
-      wasm: baseName + '.wasm',
-      loaderJs: baseName + '.loader.js',
-      embeddedLoaderJs: baseName + '.embedded-loader.js',
-      base64: baseName + '.base64',
+      base: base,
+      wasm: base + '.wasm',
+      loaderJs: base + '.loader.js',
+      embeddedLoaderJs: base + '.embedded-loader.js',
+      base64: base + '.base64',
       buildLog: 'build-log.txt',
       buildRequest: 'build-request.json',
-      zip: baseName + '-wasm-build.zip'
+      zip: base + '-wasm-build.zip'
     };
   }
 
-  function clearGeneratedOutputs() {
-    const names = getExpectedArtifactNames();
+  function bytesToBase64(bytes) {
+    let binary = '';
+    const chunkSize = 0x8000;
 
-    state.lastBuildResult = null;
-    state.zipBlob = null;
-    state.zipName = '';
-
-    setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
-
-    showOutput('まだ出力はありません。');
-    showEmbeddedLoader('まだ生成されていません。');
-    setHtml('buildSummary', 'まだ要約はありません。');
-
-    const zipNotice = getEl('zipNotice');
-    if (zipNotice) {
-      zipNotice.textContent = 'ZIPはまだ生成されていません。';
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+      const chunk = bytes.subarray(i, i + chunkSize);
+      binary += String.fromCharCode.apply(null, chunk);
     }
 
-    updateProgress(0, '待機中');
+    return btoa(binary);
+  }
+
+  function base64ToBytes(base64) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i += 1) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return bytes;
+  }
+
+  function textToBytes(text) {
+    return new TextEncoder().encode(String(text || ''));
+  }
+
+  function normalizeWasmBytes(value) {
+    if (value instanceof Uint8Array) return value;
+    if (value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (Array.isArray(value)) return new Uint8Array(value);
+    if (typeof value === 'string') return base64ToBytes(value);
+
+    throw new Error('wasm本体が取得できません。コンパイラ結果に wasmBytes / wasm / wasmBase64 が必要です。');
+  }
+
+  function makeLoadFunctionName(projectName) {
+    const body = normalizeProjectName(projectName)
+      .split('-')
+      .filter(Boolean)
+      .map(function (part) {
+        return part.charAt(0).toUpperCase() + part.slice(1);
+      })
+      .join('');
+
+    return 'load' + (body || 'RustWasm');
+  }
+
+  function makeDefaultLoaderJs(input, names) {
+    const functionName = makeLoadFunctionName(input.projectName);
+
+    return [
+      '// Rust Wasm loader',
+      '// build id: ' + input.buildId,
+      '// project: ' + input.projectName,
+      '',
+      'export async function ' + functionName + '(imports = {}) {',
+      '  const wasmUrl = new URL("./' + names.wasm + '", import.meta.url);',
+      '  const response = await fetch(wasmUrl);',
+      '  if (!response.ok) {',
+      '    throw new Error(`Wasm fetch failed: ${response.status} ${response.statusText}`);',
+      '  }',
+      '  const bytes = await response.arrayBuffer();',
+      '  const result = await WebAssembly.instantiate(bytes, imports);',
+      '  return result.instance;',
+      '}',
+      '',
+      'export default ' + functionName + ';',
+      ''
+    ].join('\n');
+  }
+
+  function makeEmbeddedLoaderJs(input, names, wasmBase64) {
+    const functionName = makeLoadFunctionName(input.projectName);
+
+    return [
+      '// Rust Wasm embedded loader',
+      '// build id: ' + input.buildId,
+      '// project: ' + input.projectName,
+      '// wasm file: ' + names.wasm,
+      '// this file embeds wasm as base64',
+      '',
+      'const __orikuroEmbeddedWasmBase64 = ' + JSON.stringify(wasmBase64) + ';',
+      '',
+      'function __orikuroBase64ToBytes(base64) {',
+      '  const binary = atob(base64);',
+      '  const bytes = new Uint8Array(binary.length);',
+      '  for (let i = 0; i < binary.length; i += 1) {',
+      '    bytes[i] = binary.charCodeAt(i);',
+      '  }',
+      '  return bytes;',
+      '}',
+      '',
+      'export async function ' + functionName + '(imports = {}) {',
+      '  const bytes = __orikuroBase64ToBytes(__orikuroEmbeddedWasmBase64);',
+      '  const result = await WebAssembly.instantiate(bytes, imports);',
+      '  return result.instance;',
+      '}',
+      '',
+      'export function getEmbeddedWasmBytes() {',
+      '  return __orikuroBase64ToBytes(__orikuroEmbeddedWasmBase64);',
+      '}',
+      '',
+      'export function getEmbeddedWasmBase64() {',
+      '  return __orikuroEmbeddedWasmBase64;',
+      '}',
+      '',
+      'export default ' + functionName + ';',
+      ''
+    ].join('\n');
+  }
+
+  function collectInput() {
+    const entryPoint = normalizeEntryPoint(safeValue('entryType', 'lib.rs'));
+    const projectName = normalizeProjectName(safeValue('projectName', 'sample-rust-project'));
+
+    return {
+      buildId: 'rust-build-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
+      projectName: projectName,
+      entryPoint: entryPoint,
+      outputMode: normalizeOutputMode(safeValue('outputMode', 'wasm-js').trim()),
+      buildMode: normalizeBuildMode(safeValue('buildMode', 'release').trim()),
+      crateType: normalizeCrateType(safeValue('crateType', 'cdylib'), entryPoint),
+      version: safeValue('version', '0.1.0').trim() || '0.1.0',
+      edition: normalizeEdition(safeValue('edition', '2021')),
+      dependenciesText: normalizeLineBreaks(safeValue('dependenciesText', '')),
+      featuresText: normalizeLineBreaks(safeValue('featuresText', '')),
+      cargoTomlText: normalizeLineBreaks(safeValue('cargoToml', '')),
+      mainRustCode: normalizeLineBreaks(safeValue('mainRustCode', '')),
+      subFiles: state.subFiles.map(function (file) {
+        return {
+          name: file.name,
+          content: normalizeLineBreaks(file.content || '')
+        };
+      }),
+      flags: {
+        enableWasmBindgen: getEl('enableWasmBindgen') ? !!getEl('enableWasmBindgen').checked : true,
+        enableOptimize: getEl('enableOptimize') ? !!getEl('enableOptimize').checked : true,
+        enableJsLoader: getEl('enableJsLoader') ? !!getEl('enableJsLoader').checked : true
+      }
+    };
+  }
+
+  function createBuildRequest(input) {
+    return {
+      build: {
+        buildId: input.buildId,
+        projectName: input.projectName,
+        version: input.version,
+        edition: input.edition,
+        entryPoint: input.entryPoint,
+        outputMode: input.outputMode,
+        buildMode: input.buildMode,
+        crateType: input.crateType,
+        dependenciesText: input.dependenciesText,
+        featuresText: input.featuresText,
+        mainRustCode: input.mainRustCode,
+        subFiles: input.subFiles,
+        flags: input.flags
+      }
+    };
+  }
+
+  function validateInput(input) {
+    const errors = [];
+    const warnings = [];
+
+    if (!input.projectName) {
+      errors.push('projectName が空です。');
+    }
+
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(input.projectName)) {
+      errors.push('projectName は英小文字・数字・ハイフンのみで指定してください。');
+    }
+
+    if (!/^\d+\.\d+\.\d+$/.test(input.version)) {
+      errors.push('version は 0.1.0 の形式にしてください。');
+    }
+
+    if (!input.entryPoint.endsWith('.rs')) {
+      errors.push('entryPoint は .rs ファイルにしてください。');
+    }
+
+    if (!input.mainRustCode.trim()) {
+      errors.push('メインRustコードが空です。');
+    }
+
+    if (inferEntryTarget(input.entryPoint) === 'main') {
+      warnings.push('main.rs は bin 扱いです。wasmライブラリ化したい場合は lib.rs を使ってください。');
+    }
+
+    if (input.outputMode === 'js-only') {
+      warnings.push('js-only は .wasm を出力しません。本物のwasm生成確認には wasm-js または wasm-only を使ってください。');
+    }
+
+    return {
+      ok: errors.length === 0,
+      errors: errors,
+      warnings: warnings
+    };
   }
 
   function readSubFileName() {
@@ -316,350 +495,7 @@
     showStatus('補助ファイルを表示しました: ' + file.name);
   }
 
-  function collectInput() {
-    const entryPoint = normalizeEntryPoint(safeValue('entryType', 'lib.rs'));
-    const projectName = normalizeProjectName(safeValue('projectName', 'sample-rust-project'));
-
-    return {
-      buildId: 'rust-build-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10),
-      projectName: projectName,
-      entryPoint: entryPoint,
-      outputMode: normalizeOutputMode(safeValue('outputMode', 'wasm-js').trim()),
-      buildMode: normalizeBuildMode(safeValue('buildMode', 'release').trim()),
-      crateType: normalizeCrateType(safeValue('crateType', 'cdylib'), entryPoint),
-      version: safeValue('version', '0.1.0').trim() || '0.1.0',
-      edition: normalizeEdition(safeValue('edition', '2021')),
-      dependenciesText: normalizeLineBreaks(safeValue('dependenciesText', '')),
-      featuresText: normalizeLineBreaks(safeValue('featuresText', '')),
-      cargoTomlText: normalizeLineBreaks(safeValue('cargoToml', '')),
-      mainRustCode: normalizeLineBreaks(safeValue('mainRustCode', '')),
-      subFiles: state.subFiles.map(function (file) {
-        return {
-          name: file.name,
-          content: normalizeLineBreaks(file.content || '')
-        };
-      }),
-      flags: {
-        enableWasmBindgen: !!getEl('enableWasmBindgen') ? !!getEl('enableWasmBindgen').checked : true,
-        enableOptimize: !!getEl('enableOptimize') ? !!getEl('enableOptimize').checked : true,
-        enableJsLoader: !!getEl('enableJsLoader') ? !!getEl('enableJsLoader').checked : true
-      }
-    };
-  }
-
-  function createBuildRequest(input) {
-    return {
-      build: {
-        buildId: input.buildId,
-        projectName: input.projectName,
-        version: input.version,
-        edition: input.edition,
-        entryPoint: input.entryPoint,
-        outputMode: input.outputMode,
-        buildMode: input.buildMode,
-        crateType: input.crateType,
-        dependenciesText: input.dependenciesText,
-        featuresText: input.featuresText,
-        mainRustCode: input.mainRustCode,
-        subFiles: input.subFiles,
-        flags: input.flags
-      }
-    };
-  }
-
-  function validateInput(input) {
-    const errors = [];
-    const warnings = [];
-
-    if (!input.projectName) {
-      errors.push('projectName が空です。');
-    }
-
-    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(input.projectName)) {
-      errors.push('projectName は英小文字・数字・ハイフンのみで指定してください。');
-    }
-
-    if (!/^\d+\.\d+\.\d+$/.test(input.version)) {
-      errors.push('version は 0.1.0 の形式にしてください。');
-    }
-
-    if (!input.entryPoint.endsWith('.rs')) {
-      errors.push('entryPoint は .rs ファイルにしてください。');
-    }
-
-    if (!input.mainRustCode.trim()) {
-      errors.push('メインRustコードが空です。');
-    }
-
-    if (inferEntryTarget(input.entryPoint) === 'main') {
-      warnings.push('main.rs は bin 扱いです。wasmライブラリ化したい場合は lib.rs を使ってください。');
-    }
-
-    return {
-      ok: errors.length === 0,
-      errors,
-      warnings
-    };
-  }
-
-  function bytesToBase64(bytes) {
-    let binary = '';
-    const chunkSize = 0x8000;
-
-    for (let i = 0; i < bytes.length; i += chunkSize) {
-      const chunk = bytes.subarray(i, i + chunkSize);
-      binary += String.fromCharCode.apply(null, chunk);
-    }
-
-    return btoa(binary);
-  }
-
-  function base64ToBytes(base64) {
-    const binary = atob(base64);
-    const bytes = new Uint8Array(binary.length);
-
-    for (let i = 0; i < binary.length; i += 1) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-
-    return bytes;
-  }
-
-  function normalizeBytes(value) {
-    if (value instanceof Uint8Array) return value;
-
-    if (value instanceof ArrayBuffer) {
-      return new Uint8Array(value);
-    }
-
-    if (Array.isArray(value)) {
-      return new Uint8Array(value);
-    }
-
-    if (typeof value === 'string') {
-      return base64ToBytes(value);
-    }
-
-    throw new Error('wasm本体が Uint8Array / ArrayBuffer / base64 のどれでもありません。');
-  }
-
-  function makeDefaultLoaderJs(input, names) {
-    const functionName = makeLoadFunctionName(input.projectName);
-
-    return [
-      '// Rust Wasm loader',
-      '// build id: ' + input.buildId,
-      '// project: ' + input.projectName,
-      '',
-      'export async function ' + functionName + '(imports = {}) {',
-      '  const wasmUrl = new URL("./' + names.wasm + '", import.meta.url);',
-      '  const response = await fetch(wasmUrl);',
-      '  if (!response.ok) {',
-      '    throw new Error(`Wasm fetch failed: ${response.status} ${response.statusText}`);',
-      '  }',
-      '  const bytes = await response.arrayBuffer();',
-      '  const result = await WebAssembly.instantiate(bytes, imports);',
-      '  return result.instance;',
-      '}',
-      '',
-      'export default ' + functionName + ';',
-      ''
-    ].join('\n');
-  }
-
-  function makeEmbeddedLoaderJs(input, names, wasmBase64, loaderJsText) {
-    const functionName = makeLoadFunctionName(input.projectName);
-
-    return [
-      '// Rust Wasm embedded-loader',
-      '// build id: ' + input.buildId,
-      '// project: ' + input.projectName,
-      '// source loader: ' + names.loaderJs,
-      '',
-      'const __embeddedWasmBase64 = ' + JSON.stringify(wasmBase64) + ';',
-      '',
-      'function __base64ToBytes(base64) {',
-      '  const binary = atob(base64);',
-      '  const bytes = new Uint8Array(binary.length);',
-      '  for (let i = 0; i < binary.length; i += 1) {',
-      '    bytes[i] = binary.charCodeAt(i);',
-      '  }',
-      '  return bytes;',
-      '}',
-      '',
-      'export async function ' + functionName + '(imports = {}) {',
-      '  const bytes = __base64ToBytes(__embeddedWasmBase64);',
-      '  const result = await WebAssembly.instantiate(bytes, imports);',
-      '  return result.instance;',
-      '}',
-      '',
-      'export function getEmbeddedWasmBytes() {',
-      '  return __base64ToBytes(__embeddedWasmBase64);',
-      '}',
-      '',
-      'export function getEmbeddedWasmBase64() {',
-      '  return __embeddedWasmBase64;',
-      '}',
-      '',
-      'export const originalLoaderSource = ' + JSON.stringify(loaderJsText) + ';',
-      '',
-      'export default ' + functionName + ';',
-      ''
-    ].join('\n');
-  }
-
-  function makeLoadFunctionName(projectName) {
-    const body = normalizeProjectName(projectName)
-      .split('-')
-      .filter(Boolean)
-      .map(function (part) {
-        return part.charAt(0).toUpperCase() + part.slice(1);
-      })
-      .join('');
-
-    return 'load' + (body || 'RustWasm');
-  }
-
-  async function runCompiler(input) {
-    if (
-      global.RustWasmCompiler &&
-      typeof global.RustWasmCompiler.compile === 'function'
-    ) {
-      return await global.RustWasmCompiler.compile(input);
-    }
-
-    if (
-      global.RustBuildEngine &&
-      typeof global.RustBuildEngine.compile === 'function'
-    ) {
-      return await global.RustBuildEngine.compile(input);
-    }
-
-    throw new Error(
-      'Rust→Wasmコンパイラ本体が接続されていません。assets/js/rust/rust-wasm-compiler.js を読み込ませてください。'
-    );
-  }
-
-  async function buildArtifacts(input) {
-    const names = getExpectedArtifactNames(input.projectName);
-    const buildRequest = createBuildRequest(input);
-
-    updateProgress(20, 'Rustコードと設定をコンパイラへ渡しています');
-
-    const compilerResult = await runCompiler(input);
-
-    updateProgress(45, '.wasm を受け取りました');
-
-    const wasmBytes = normalizeBytes(
-      compilerResult.wasmBytes ||
-      compilerResult.wasm ||
-      compilerResult.wasmBase64
-    );
-
-    const wasmBase64 = bytesToBase64(wasmBytes);
-
-    updateProgress(60, 'loader.js を生成しています');
-
-    const loaderJsText = compilerResult.loaderJsText ||
-      compilerResult.loaderJs ||
-      makeDefaultLoaderJs(input, names);
-
-    updateProgress(70, 'embedded-loader.js を生成しています');
-
-    const embeddedLoaderText = makeEmbeddedLoaderJs(
-      input,
-      names,
-      wasmBase64,
-      loaderJsText
-    );
-
-    updateProgress(80, '成果物をまとめています');
-
-    const buildLogText = [
-      '=== Rust Wasm Build ===',
-      'status: success',
-      'buildId: ' + input.buildId,
-      'projectName: ' + input.projectName,
-      'entryPoint: ' + input.entryPoint,
-      'buildMode: ' + input.buildMode,
-      'crateType: ' + input.crateType,
-      'outputMode: ' + input.outputMode,
-      '',
-      'generated artifacts:',
-      '- ' + names.wasm,
-      '- ' + names.loaderJs,
-      '- ' + names.embeddedLoaderJs,
-      '- ' + names.base64,
-      '- ' + names.buildLog,
-      '- ' + names.buildRequest,
-      '',
-      'compiler log:',
-      compilerResult.logText || compilerResult.buildLog || '(なし)'
-    ].join('\n');
-
-    const outputText = [
-      '=== Rust Wasm Output ===',
-      'status: success',
-      'projectName: ' + input.projectName,
-      'embeddedLoader: ' + names.embeddedLoaderJs,
-      'zip: ' + names.zip,
-      '',
-      'page display:',
-      '- build-log.txt',
-      '- output',
-      '- ' + names.embeddedLoaderJs,
-      '- ZIP download'
-    ].join('\n');
-
-    const files = [
-      {
-        name: names.wasm,
-        type: 'application/wasm',
-        bytes: wasmBytes
-      },
-      {
-        name: names.loaderJs,
-        type: 'text/javascript;charset=utf-8',
-        text: loaderJsText
-      },
-      {
-        name: names.embeddedLoaderJs,
-        type: 'text/javascript;charset=utf-8',
-        text: embeddedLoaderText
-      },
-      {
-        name: names.base64,
-        type: 'text/plain;charset=utf-8',
-        text: wasmBase64
-      },
-      {
-        name: names.buildLog,
-        type: 'text/plain;charset=utf-8',
-        text: buildLogText
-      },
-      {
-        name: names.buildRequest,
-        type: 'application/json;charset=utf-8',
-        text: JSON.stringify(buildRequest, null, 2)
-      }
-    ];
-
-    return {
-      ok: true,
-      input,
-      names,
-      buildRequest,
-      files,
-      wasmBytes,
-      wasmBase64,
-      loaderJsText,
-      embeddedLoaderText,
-      buildLogText,
-      outputText
-    };
-  }
-
-  function makeCrcTable() {
+  function makeCrc32Table() {
     const table = [];
 
     for (let n = 0; n < 256; n += 1) {
@@ -675,131 +511,123 @@
     return table;
   }
 
-  const CRC_TABLE = makeCrcTable();
+  const CRC32_TABLE = makeCrc32Table();
 
   function crc32(bytes) {
-    let crc = 0 ^ -1;
+    let crc = 0xffffffff;
 
     for (let i = 0; i < bytes.length; i += 1) {
-      crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ bytes[i]) & 0xff];
+      crc = CRC32_TABLE[(crc ^ bytes[i]) & 0xff] ^ (crc >>> 8);
     }
 
-    return (crc ^ -1) >>> 0;
+    return (crc ^ 0xffffffff) >>> 0;
   }
 
-  function textToBytes(text) {
-    return new TextEncoder().encode(text);
+  function pushUint16(list, value) {
+    list.push(value & 0xff, (value >>> 8) & 0xff);
   }
 
-  function numberToBytesLE(value, byteLength) {
-    const bytes = [];
-
-    for (let i = 0; i < byteLength; i += 1) {
-      bytes.push((value >>> (8 * i)) & 0xff);
-    }
-
-    return bytes;
+  function pushUint32(list, value) {
+    list.push(
+      value & 0xff,
+      (value >>> 8) & 0xff,
+      (value >>> 16) & 0xff,
+      (value >>> 24) & 0xff
+    );
   }
 
-  function concatUint8Arrays(arrays) {
+  function concatUint8Arrays(parts) {
     let total = 0;
 
-    arrays.forEach(function (array) {
-      total += array.length;
-    });
+    for (const part of parts) {
+      total += part.length;
+    }
 
-    const result = new Uint8Array(total);
+    const output = new Uint8Array(total);
     let offset = 0;
 
-    arrays.forEach(function (array) {
-      result.set(array, offset);
-      offset += array.length;
-    });
+    for (const part of parts) {
+      output.set(part, offset);
+      offset += part.length;
+    }
 
-    return result;
+    return output;
   }
 
-  function createZipBlob(files) {
+  function makeZip(files) {
     const localParts = [];
     const centralParts = [];
     let offset = 0;
 
-    files.forEach(function (file) {
+    for (const file of files) {
       const nameBytes = textToBytes(file.name);
-      const dataBytes = file.bytes || textToBytes(file.text || '');
+      const dataBytes = file.bytes instanceof Uint8Array ? file.bytes : textToBytes(file.content || '');
       const crc = crc32(dataBytes);
-      const size = dataBytes.length;
 
-      const localHeader = new Uint8Array([
-        ...numberToBytesLE(0x04034b50, 4),
-        ...numberToBytesLE(20, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(crc, 4),
-        ...numberToBytesLE(size, 4),
-        ...numberToBytesLE(size, 4),
-        ...numberToBytesLE(nameBytes.length, 2),
-        ...numberToBytesLE(0, 2)
-      ]);
+      const local = [];
 
+      pushUint32(local, 0x04034b50);
+      pushUint16(local, 20);
+      pushUint16(local, 0);
+      pushUint16(local, 0);
+      pushUint16(local, 0);
+      pushUint16(local, 0);
+      pushUint32(local, crc);
+      pushUint32(local, dataBytes.length);
+      pushUint32(local, dataBytes.length);
+      pushUint16(local, nameBytes.length);
+      pushUint16(local, 0);
+
+      const localHeader = new Uint8Array(local);
       localParts.push(localHeader, nameBytes, dataBytes);
 
-      const centralHeader = new Uint8Array([
-        ...numberToBytesLE(0x02014b50, 4),
-        ...numberToBytesLE(20, 2),
-        ...numberToBytesLE(20, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(crc, 4),
-        ...numberToBytesLE(size, 4),
-        ...numberToBytesLE(size, 4),
-        ...numberToBytesLE(nameBytes.length, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 2),
-        ...numberToBytesLE(0, 4),
-        ...numberToBytesLE(offset, 4)
-      ]);
+      const central = [];
 
+      pushUint32(central, 0x02014b50);
+      pushUint16(central, 20);
+      pushUint16(central, 20);
+      pushUint16(central, 0);
+      pushUint16(central, 0);
+      pushUint16(central, 0);
+      pushUint16(central, 0);
+      pushUint32(central, crc);
+      pushUint32(central, dataBytes.length);
+      pushUint32(central, dataBytes.length);
+      pushUint16(central, nameBytes.length);
+      pushUint16(central, 0);
+      pushUint16(central, 0);
+      pushUint16(central, 0);
+      pushUint16(central, 0);
+      pushUint32(central, 0);
+      pushUint32(central, offset);
+
+      const centralHeader = new Uint8Array(central);
       centralParts.push(centralHeader, nameBytes);
 
       offset += localHeader.length + nameBytes.length + dataBytes.length;
-    });
+    }
 
-    const centralStart = offset;
-    const centralData = concatUint8Arrays(centralParts);
-    const centralSize = centralData.length;
+    const centralDir = concatUint8Arrays(centralParts);
+    const end = [];
 
-    const endRecord = new Uint8Array([
-      ...numberToBytesLE(0x06054b50, 4),
-      ...numberToBytesLE(0, 2),
-      ...numberToBytesLE(0, 2),
-      ...numberToBytesLE(files.length, 2),
-      ...numberToBytesLE(files.length, 2),
-      ...numberToBytesLE(centralSize, 4),
-      ...numberToBytesLE(centralStart, 4),
-      ...numberToBytesLE(0, 2)
+    pushUint32(end, 0x06054b50);
+    pushUint16(end, 0);
+    pushUint16(end, 0);
+    pushUint16(end, files.length);
+    pushUint16(end, files.length);
+    pushUint32(end, centralDir.length);
+    pushUint32(end, offset);
+    pushUint16(end, 0);
+
+    return concatUint8Arrays([
+      concatUint8Arrays(localParts),
+      centralDir,
+      new Uint8Array(end)
     ]);
-
-    const zipBytes = concatUint8Arrays([
-      ...localParts,
-      centralData,
-      endRecord
-    ]);
-
-    return new Blob([zipBytes], { type: 'application/zip' });
   }
 
-  function downloadByAnchor(filename, content, mimeType) {
-    const blob = content instanceof Blob
-      ? content
-      : new Blob([content], { type: mimeType || 'text/plain;charset=utf-8' });
-
+  function downloadBlob(filename, bytes, mimeType) {
+    const blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
 
@@ -814,109 +642,174 @@
     }, 1000);
   }
 
-  function renderBuildResult(result) {
-    state.lastBuildResult = result;
-    state.zipBlob = createZipBlob(result.files);
-    state.zipName = result.names.zip;
+  function downloadText(filename, content, mimeType) {
+    downloadBlob(filename, textToBytes(content || ''), mimeType || 'text/plain;charset=utf-8');
+  }
 
-    setLabelTextByFor('embeddedLoaderOutput', result.names.embeddedLoaderJs);
-
-    showLog(result.buildLogText);
-    showOutput(result.outputText);
-    showEmbeddedLoader(result.embeddedLoaderText);
-
-    const zipNotice = getEl('zipNotice');
-    if (zipNotice) {
-      zipNotice.textContent = result.names.zip + ' をダウンロードできます。';
-    }
-
-    setHtml('buildSummary', [
+  function makeSummaryHtml(result) {
+    return [
       '<div class="rust-real-compile-summary">',
-      '<p><strong>状態:</strong> 成功</p>',
+      '<p><strong>状態:</strong> 生成完了</p>',
+      '<p><strong>buildId:</strong> ' + escapeHtml(result.input.buildId) + '</p>',
       '<p><strong>project:</strong> ' + escapeHtml(result.input.projectName) + '</p>',
-      '<p><strong>表示:</strong> ' + escapeHtml(result.names.embeddedLoaderJs) + '</p>',
-      '<p><strong>ZIP:</strong> ' + escapeHtml(result.names.zip) + '</p>',
+      '<p><strong>wasm:</strong> ' + escapeHtml(result.names.wasm) + '</p>',
+      '<p><strong>loader:</strong> ' + escapeHtml(result.names.loaderJs) + '</p>',
+      '<p><strong>embedded:</strong> ' + escapeHtml(result.names.embeddedLoaderJs) + '</p>',
+      '<p><strong>zip:</strong> ' + escapeHtml(result.names.zip) + '</p>',
       '</div>'
-    ].join(''));
-
-    updateProgress(100, '成果物生成完了');
-  }
-
-  function renderBuildError(input, error) {
-    const names = getExpectedArtifactNames(input ? input.projectName : '');
-
-    state.lastBuildResult = null;
-    state.zipBlob = null;
-    state.zipName = '';
-
-    const log = [
-      '=== Rust Wasm Build ===',
-      'status: error',
-      '',
-      String(error && error.stack ? error.stack : error)
-    ].join('\n');
-
-    setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
-    showLog(log);
-    showOutput('変換に失敗しました。ビルドログを確認してください。');
-    showEmbeddedLoader('生成されていません。');
-
-    const zipNotice = getEl('zipNotice');
-    if (zipNotice) {
-      zipNotice.textContent = 'ZIPは生成されていません。';
-    }
-
-    setHtml('buildSummary', [
-      '<div class="rust-real-compile-summary">',
-      '<p><strong>状態:</strong> 失敗</p>',
-      '<p><strong>原因:</strong> ' + escapeHtml(String(error && error.message ? error.message : error)) + '</p>',
-      '</div>'
-    ].join(''));
-
-    updateProgress(0, '変換失敗');
-  }
-
-  function lockUi(locked) {
-    setDisabled('runBuildButton', locked);
-    setDisabled('addSubFileButton', locked);
-    setDisabled('clearAllButton', locked);
-    setDisabled('downloadOutputButton', locked);
-    setDisabled('downloadLogButton', locked);
-    setDisabled('copyOutputButton', locked);
-    setDisabled('downloadZipButton', locked);
-    setDisabled('copyEmbeddedLoaderButton', locked);
+    ].join('');
   }
 
   async function runBuild() {
     if (state.isRunning) {
-      showStatus('変換処理中です');
+      showStatus('変換中です');
       return;
     }
 
     state.isRunning = true;
     lockUi(true);
 
-    let input = null;
+    showStatus('入力確認中...');
+    showLog('入力を確認しています...');
+    showOutput('');
+    showEmbeddedLoader('');
+    setHtml('buildSummary', '');
 
     try {
-      clearGeneratedOutputs();
-
-      updateProgress(5, '入力を確認しています');
-
-      input = collectInput();
+      const input = collectInput();
       const validation = validateInput(input);
 
       if (!validation.ok) {
-        throw new Error('入力エラーがあります。\n- ' + validation.errors.join('\n- '));
+        const text = [
+          '入力エラーがあります。',
+          '',
+          'errors:',
+          validation.errors.map(function (item) { return '- ' + item; }).join('\n')
+        ].join('\n');
+
+        throw new Error(text);
       }
 
-      updateProgress(10, 'buildRequestJson を生成しています');
+      const names = getNames(input.projectName);
+      const buildRequest = createBuildRequest(input);
+      const buildRequestText = JSON.stringify(buildRequest, null, 2);
 
-      const result = await buildArtifacts(input);
+      setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
 
-      renderBuildResult(result);
+      showStatus('Rust→Wasm変換中...');
+      showLog('RustWasmCompiler.compile(input) を実行しています...');
+
+      if (!global.RustWasmCompiler || typeof global.RustWasmCompiler.compile !== 'function') {
+        throw new Error('RustWasmCompiler が読み込まれていません。rust-wasm-compiler.js を rust-build-page.js より前に読み込んでください。');
+      }
+
+      const compilerResult = await global.RustWasmCompiler.compile(input);
+
+      const wasmBytes = normalizeWasmBytes(
+        compilerResult.wasmBytes ||
+        compilerResult.wasm ||
+        compilerResult.wasmBase64
+      );
+
+      const wasmBase64 = compilerResult.wasmBase64 || bytesToBase64(wasmBytes);
+      const loaderJsText = compilerResult.loaderJsText || compilerResult.loaderJs || makeDefaultLoaderJs(input, names);
+      const embeddedLoaderText = makeEmbeddedLoaderJs(input, names, wasmBase64);
+
+      const buildLogText = [
+        '=== Rust Wasm Build ===',
+        'status: success',
+        'buildId: ' + input.buildId,
+        'projectName: ' + input.projectName,
+        'wasmFile: ' + names.wasm,
+        'loaderFile: ' + names.loaderJs,
+        'embeddedLoaderFile: ' + names.embeddedLoaderJs,
+        'zipFile: ' + names.zip,
+        '',
+        'warnings:',
+        validation.warnings.length ? validation.warnings.map(function (item) { return '- ' + item; }).join('\n') : '- なし',
+        '',
+        'compiler log:',
+        compilerResult.logText || '(なし)'
+      ].join('\n');
+
+      const outputText = [
+        '=== Rust Wasm Output ===',
+        'status: success',
+        'projectName: ' + input.projectName,
+        '',
+        'page display:',
+        '- ' + names.buildLog,
+        '- output text',
+        '- ' + names.embeddedLoaderJs,
+        '- ' + names.zip,
+        '',
+        'zip contents:',
+        '- ' + names.wasm,
+        '- ' + names.loaderJs,
+        '- ' + names.embeddedLoaderJs,
+        '- ' + names.base64,
+        '- ' + names.buildLog,
+        '- ' + names.buildRequest
+      ].join('\n');
+
+      const zipBytes = makeZip([
+        {
+          name: names.wasm,
+          bytes: wasmBytes
+        },
+        {
+          name: names.loaderJs,
+          content: loaderJsText
+        },
+        {
+          name: names.embeddedLoaderJs,
+          content: embeddedLoaderText
+        },
+        {
+          name: names.base64,
+          content: wasmBase64
+        },
+        {
+          name: names.buildLog,
+          content: buildLogText
+        },
+        {
+          name: names.buildRequest,
+          content: buildRequestText
+        }
+      ]);
+
+      const result = {
+        ok: true,
+        input: input,
+        names: names,
+        buildRequestText: buildRequestText,
+        wasmBytes: wasmBytes,
+        wasmBase64: wasmBase64,
+        loaderJsText: loaderJsText,
+        embeddedLoaderText: embeddedLoaderText,
+        buildLogText: buildLogText,
+        outputText: outputText,
+        zipBytes: zipBytes
+      };
+
+      state.lastBuildResult = result;
+
+      showLog(buildLogText);
+      showOutput(outputText);
+      showEmbeddedLoader(embeddedLoaderText);
+      setHtml('buildSummary', makeSummaryHtml(result));
+      showStatus('生成完了');
     } catch (error) {
-      renderBuildError(input, error);
+      state.lastBuildResult = null;
+
+      const message = String(error && error.stack ? error.stack : error);
+
+      showStatus('生成失敗');
+      showLog(message);
+      showOutput('生成に失敗しました。ビルドログを確認してください。');
+      showEmbeddedLoader('生成されていません。');
+      setHtml('buildSummary', '<div class="rust-real-compile-summary"><p><strong>状態:</strong> 生成失敗</p></div>');
     } finally {
       state.isRunning = false;
       lockUi(false);
@@ -926,8 +819,6 @@
   function clearAll() {
     state.subFiles = [];
     state.lastBuildResult = null;
-    state.zipBlob = null;
-    state.zipName = '';
 
     setValue('projectName', 'sample-rust-project');
     setValue('entryType', 'lib.rs');
@@ -965,80 +856,87 @@
     setValue('subFileName', '');
     setValue('subFileCode', '');
 
+    const names = getNames('sample-rust-project');
+    setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
+
     showLog('');
-    clearGeneratedOutputs();
+    showOutput('まだ出力はありません。');
+    showEmbeddedLoader('まだ生成されていません。');
+    setHtml('buildSummary', 'まだ要約はありません。');
     renderSubFiles();
     showStatus('初期化しました');
   }
 
   function downloadOutput() {
     if (!state.lastBuildResult || !state.lastBuildResult.outputText) {
-      showStatus('出力内容はまだ生成されていません');
+      showStatus('保存する出力がありません');
       return;
     }
 
-    downloadByAnchor(
-      'output.txt',
-      state.lastBuildResult.outputText,
-      'text/plain;charset=utf-8'
-    );
-
+    downloadText('output.txt', state.lastBuildResult.outputText, 'text/plain;charset=utf-8');
     showStatus('出力内容を保存しました');
   }
 
   function downloadLog() {
     if (!state.lastBuildResult || !state.lastBuildResult.buildLogText) {
-      showStatus('ビルドログはまだ生成されていません');
+      showStatus('保存するビルドログがありません');
       return;
     }
 
-    downloadByAnchor(
-      'build-log.txt',
-      state.lastBuildResult.buildLogText,
-      'text/plain;charset=utf-8'
-    );
-
+    downloadText(state.lastBuildResult.names.buildLog, state.lastBuildResult.buildLogText, 'text/plain;charset=utf-8');
     showStatus('ビルドログを保存しました');
   }
 
   function downloadZip() {
-    if (!state.zipBlob || !state.zipName) {
+    if (!state.lastBuildResult || !state.lastBuildResult.zipBytes) {
       showStatus('ZIPはまだ生成されていません');
       return;
     }
 
-    downloadByAnchor(state.zipName, state.zipBlob, 'application/zip');
+    downloadBlob(state.lastBuildResult.names.zip, state.lastBuildResult.zipBytes, 'application/zip');
     showStatus('ZIPをダウンロードしました');
   }
 
-  async function copyOutput() {
-    if (!state.lastBuildResult || !state.lastBuildResult.outputText) {
-      showStatus('コピーする出力内容がありません');
+  async function copyTextToClipboard(text, successMessage, emptyMessage) {
+    if (!text) {
+      showStatus(emptyMessage);
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(state.lastBuildResult.outputText);
-      showStatus('出力内容をコピーしました');
+      await navigator.clipboard.writeText(text);
+      showStatus(successMessage);
     } catch (error) {
-      showStatus('出力内容のコピーに失敗しました');
+      showStatus('コピーに失敗しました');
       showLog(String(error && error.stack ? error.stack : error));
     }
   }
 
-  async function copyEmbeddedLoader() {
-    if (!state.lastBuildResult || !state.lastBuildResult.embeddedLoaderText) {
-      showStatus('コピーする embedded-loader.js がありません');
-      return;
-    }
+  function copyOutput() {
+    copyTextToClipboard(
+      state.lastBuildResult && state.lastBuildResult.outputText,
+      '出力内容をコピーしました',
+      'コピーする出力がありません'
+    );
+  }
 
-    try {
-      await navigator.clipboard.writeText(state.lastBuildResult.embeddedLoaderText);
-      showStatus('embedded-loader.js をコピーしました');
-    } catch (error) {
-      showStatus('embedded-loader.js のコピーに失敗しました');
-      showLog(String(error && error.stack ? error.stack : error));
-    }
+  function copyEmbeddedLoader() {
+    copyTextToClipboard(
+      state.lastBuildResult && state.lastBuildResult.embeddedLoaderText,
+      'embedded-loader.jsをコピーしました',
+      'コピーするembedded-loader.jsがありません'
+    );
+  }
+
+  function lockUi(locked) {
+    setDisabled('runBuildButton', locked);
+    setDisabled('addSubFileButton', locked);
+    setDisabled('clearAllButton', locked);
+    setDisabled('downloadOutputButton', locked);
+    setDisabled('downloadLogButton', locked);
+    setDisabled('copyOutputButton', locked);
+    setDisabled('downloadZipButton', locked);
+    setDisabled('copyEmbeddedLoaderButton', locked);
   }
 
   function bindButtons() {
@@ -1108,15 +1006,12 @@
 
     projectName.addEventListener('input', function () {
       if (state.lastBuildResult) return;
-
-      const names = getExpectedArtifactNames(projectName.value);
+      const names = getNames(projectName.value);
       setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
     });
   }
 
   function ensureFields() {
-    if (!getEl('buildProgressBar')) console.warn('buildProgressBar が見つかりません');
-    if (!getEl('buildProgressText')) console.warn('buildProgressText が見つかりません');
     if (!getEl('buildLog')) console.warn('buildLog が見つかりません');
     if (!getEl('buildOutput')) console.warn('buildOutput が見つかりません');
     if (!getEl('embeddedLoaderOutput')) console.warn('embeddedLoaderOutput が見つかりません');
@@ -1131,7 +1026,12 @@
     bindNavigation();
     bindProjectNamePreview();
     renderSubFiles();
-    clearGeneratedOutputs();
+
+    const names = getNames();
+    setLabelTextByFor('embeddedLoaderOutput', names.embeddedLoaderJs);
+
+    showOutput('まだ出力はありません。');
+    showEmbeddedLoader('まだ生成されていません。');
     showStatus('準備完了');
   }
 
