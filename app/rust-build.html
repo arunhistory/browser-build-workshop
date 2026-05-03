@@ -25,7 +25,8 @@
         <h1>Rust Build</h1>
         <p>
           Rust を Wasm へ変換するためのビルド作業ページ。
-          buildRequestJson を生成し、GitHub Actions の本物ビルド成果物を読み込んで表示します。
+          入力したRustコードから成果物を生成し、
+          embedded-loader.js の表示、コピー、ZIPダウンロードまでページ上で処理します。
         </p>
       </div>
     </section>
@@ -173,13 +174,12 @@ pub fn greet(name: &str) -> String {
 
         <div class="button-row">
           <button class="btn btn-secondary" id="addSubFileButton" type="button">補助ファイルを追加</button>
-          <button class="btn btn-primary" id="runBuildButton" type="button">ビルドJSONを生成</button>
+          <button class="btn btn-primary" id="runBuildButton" type="button">変換を実行</button>
           <button class="btn btn-danger" id="clearAllButton" type="button">入力を初期化</button>
         </div>
 
         <div class="notice">
-          このページで生成した buildRequestJson を GitHub Actions に渡します。
-          Actions 実行後の成果物JSONを下の欄へ貼り付けることで、画面に本物成果物を反映します。
+          このページでは、Rust入力から成果物生成、embedded-loader.js表示、ZIP生成までをページ側で実行します。
         </div>
       </article>
 
@@ -190,8 +190,8 @@ pub fn greet(name: &str) -> String {
 
         <div class="field">
           <label for="buildProgress">進捗</label>
-          <progress id="buildProgress" value="0" max="100"></progress>
-          <div class="notice" id="buildProgressText">まだ処理は開始されていません。</div>
+          <progress id="buildProgress" max="100" value="0" style="width: 100%;"></progress>
+          <div class="notice" id="buildProgressText">まだ実行されていません。</div>
         </div>
 
         <div class="field">
@@ -215,28 +215,13 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="field">
-          <label for="embeddedLoaderOutput" id="embeddedLoaderLabel">〇〇.embedded-loader.js</label>
+          <label for="embeddedLoaderOutput" id="embeddedLoaderLabel">sample-rust-project.embedded-loader.js</label>
           <textarea
             id="embeddedLoaderOutput"
             class="output-box file-output-box"
             spellcheck="false"
             readonly
-          >まだ embedded-loader.js は読み込まれていません。</textarea>
-        </div>
-
-        <div class="field">
-          <label for="artifactResultJson">GitHub Actions成果物JSON</label>
-          <textarea
-            id="artifactResultJson"
-            class="output-box"
-            spellcheck="false"
-            placeholder="GitHub Actions が出力した成果物JSONをここに貼り付ける"
-          ></textarea>
-        </div>
-
-        <div class="button-row">
-          <button class="btn btn-secondary" id="loadArtifactsButton" type="button">成果物を読み込む</button>
-          <button class="btn btn-muted" id="clearArtifactsButton" type="button">成果物をクリア</button>
+          >まだ embedded-loader.js は生成されていません。</textarea>
         </div>
 
         <div class="field">
@@ -247,7 +232,7 @@ pub fn greet(name: &str) -> String {
             </button>
           </div>
           <div class="notice" id="zipNotice">
-            ZIP成果物が読み込まれると、ここからダウンロードできます。
+            ZIP生成後、ここから成果物一式をダウンロードできます。
           </div>
         </div>
 
@@ -264,13 +249,14 @@ pub fn greet(name: &str) -> String {
         </div>
 
         <div class="notice">
-          表示する本物成果物は、ビルドログ、出力内容、embedded-loader.js、ZIPダウンロードです。
-          .wasm本体とbase64はZIP内に保存し、画面表示では直接扱いません。
+          画面に表示する主成果物は embedded-loader.js です。
+          .wasm、base64、loader.js、build-log.txt、build-request.json はZIP内に含めます。
         </div>
       </article>
     </section>
   </main>
 
   <script src="../assets/js/rust/orikuro-rust-compiler-core.js"></script>
-  <script src="../assets/js/rust/rust-build-page.js"></script></body>
+  <script src="../assets/js/rust/rust-build-page.js"></script>
+</body>
 </html>
