@@ -283,6 +283,13 @@
       lines.push('');
     }
 
+    if (input.entryTarget === 'main') {
+      lines.push('[[bin]]');
+      lines.push('name = "' + input.projectName + '"');
+      lines.push('path = "' + input.entryPoint + '"');
+      lines.push('');
+    }
+
     lines.push('[dependencies]');
 
     if (trimOrEmpty(input.dependenciesText)) {
@@ -320,52 +327,58 @@
     };
   }
 
+  function isUsableCompiler(candidate, methodName) {
+    if (!candidate || typeof candidate !== 'object') return false;
+    if (!methodName || typeof candidate[methodName] !== 'function') return false;
+
+    if (candidate === global[COMPILER_NAME]) return false;
+
+    if (candidate[methodName] === compileRustToWasm) return false;
+
+    return true;
+  }
+
   function findAvailableCompiler() {
     const candidates = [
-      global.OrikuroRustVirtualCompiler,
-      global.OrikuroRustCompiler,
-      global.RustVirtualCompiler,
-      global.RustBrowserCompiler,
-      global.RustBuildEngine,
-      global.RustBuildModuleManager,
-      global.RustRealCompiler
+      {
+        name: 'OrikuroRustVirtualCompiler',
+        target: global.OrikuroRustVirtualCompiler
+      },
+      {
+        name: 'OrikuroRustWasmEngine',
+        target: global.OrikuroRustWasmEngine
+      },
+      {
+        name: 'OrikuroRustCompilerEngine',
+        target: global.OrikuroRustCompilerEngine
+      },
+      {
+        name: 'RustVirtualCompiler',
+        target: global.RustVirtualCompiler
+      },
+      {
+        name: 'RustBrowserCompiler',
+        target: global.RustBrowserCompiler
+      }
     ];
+
+    const methods = ['compileProject', 'compileRustProject', 'compileWasm', 'compile', 'build', 'run'];
 
     for (let i = 0; i < candidates.length; i += 1) {
       const candidate = candidates[i];
 
-      if (!candidate || typeof candidate !== 'object') continue;
+      if (!candidate.target || typeof candidate.target !== 'object') continue;
 
-      if (typeof candidate.compile === 'function') {
-        return {
-          name: candidate.name || 'compile',
-          target: candidate,
-          method: 'compile'
-        };
-      }
+      for (let j = 0; j < methods.length; j += 1) {
+        const method = methods[j];
 
-      if (typeof candidate.build === 'function') {
-        return {
-          name: candidate.name || 'build',
-          target: candidate,
-          method: 'build'
-        };
-      }
-
-      if (typeof candidate.run === 'function') {
-        return {
-          name: candidate.name || 'run',
-          target: candidate,
-          method: 'run'
-        };
-      }
-
-      if (typeof candidate.runBuild === 'function') {
-        return {
-          name: candidate.name || 'runBuild',
-          target: candidate,
-          method: 'runBuild'
-        };
+        if (isUsableCompiler(candidate.target, method)) {
+          return {
+            name: candidate.name,
+            target: candidate.target,
+            method: method
+          };
+        }
       }
     }
 
@@ -373,7 +386,17 @@
   }
 
   async function callCompiler(compiler, payload) {
-    const result = compiler.target[compiler.method](payload);
+    if (!compiler || !compiler.target || !compiler.method) {
+      throw new Error('呼び出すRustコンパイラが不正です。');
+    }
+
+    const fn = compiler.target[compiler.method];
+
+    if (fn === compileRustToWasm) {
+      throw new Error('Rustコンパイラ接続が自分自身を指しています。再帰呼び出しを停止しました。');
+    }
+
+    const result = fn.call(compiler.target, payload);
 
     if (result && typeof result.then === 'function') {
       return await result;
@@ -399,6 +422,10 @@
       files.push.apply(files, result.artifacts);
     }
 
+    if (Array.isArray(result.generatedFiles)) {
+      files.push.apply(files, result.generatedFiles);
+    }
+
     for (let i = 0; i < files.length; i += 1) {
       const file = files[i];
 
@@ -412,6 +439,16 @@
     }
 
     return null;
+  }
+
+  function readFileContentAsText(file) {
+    if (!file || typeof file !== 'object') return '';
+
+    if (typeof file.content === 'string') return file.content;
+    if (typeof file.text === 'string') return file.text;
+    if (typeof file.value === 'string') return file.value;
+
+    return '';
   }
 
   function normalizeCompilerResult(input, validation, rawResult) {
@@ -453,6 +490,9 @@
     } else if (rawResult.wasmBinary instanceof Uint8Array) {
       wasmBytes = rawResult.wasmBinary;
       wasmBase64 = uint8ArrayToBase64(wasmBytes);
+    } else if (rawResult.wasmBinary instanceof ArrayBuffer) {
+      wasmBytes = new Uint8Array(rawResult.wasmBinary);
+      wasmBase64 = uint8ArrayToBase64(wasmBytes);
     } else if (typeof rawResult.wasmBase64 === 'string') {
       wasmBase64 = trimOrEmpty(rawResult.wasmBase64);
       wasmBytes = base64ToUint8Array(wasmBase64);
@@ -485,7 +525,9 @@
         [
           '仮想Rustコンパイラから .wasm が返りませんでした。',
           '必要な戻り値は wasmBytes または wasmBase64 です。',
-          'このファイルは接続口なので、実際のRust→Wasm変換エンジン側が .wasm を返す必要があります。'
+          '',
+          '現在の core は接続口です。',
+          '下位エンジン側で Rust → Wasm 変換結果を返す必要があります。'
         ].join('\n')
       );
     }
@@ -497,8 +539,8 @@
     const bindgenJsText =
       typeof rawResult.bindgenJsText === 'string'
         ? rawResult.bindgenJsText
-        : bindgenJsFile && typeof bindgenJsFile.content === 'string'
-          ? bindgenJsFile.content
+        : bindgenJsFile
+          ? readFileContentAsText(bindgenJsFile)
           : '';
 
     return {
@@ -516,7 +558,7 @@
     };
   }
 
-  async function compile(input) {
+  async function compileRustToWasm(input) {
     const normalizedInput = collectCompilerInput(input);
     const validation = validateCompilerInput(normalizedInput);
 
@@ -545,17 +587,21 @@
     if (!compiler) {
       throw new Error(
         [
-          'Rust → Wasm の仮想コンパイラが見つかりません。',
+          'Rust → Wasm の下位コンパイラが見つかりません。',
           '',
-          '必要:',
+          'この core はページと変換エンジンを繋ぐ接続口です。',
+          '次のどれかを、このファイルより先に読み込ませてください。',
+          '',
+          '- global.OrikuroRustVirtualCompiler.compileProject(payload)',
           '- global.OrikuroRustVirtualCompiler.compile(payload)',
-          'または',
+          '- global.OrikuroRustWasmEngine.compileWasm(payload)',
+          '- global.OrikuroRustCompilerEngine.compile(payload)',
           '- global.RustVirtualCompiler.compile(payload)',
-          'または',
-          '- global.RustBuildEngine.build(payload)',
+          '- global.RustBrowserCompiler.compile(payload)',
           '',
-          'このファイルはページと仮想ビルド空間を繋ぐ接続口です。',
-          '実際の .wasm 生成エンジンを先に読み込ませてください。'
+          '注意:',
+          'RustWasmCompiler 自身や RustBuildEngine などの上位処理は候補から除外しています。',
+          'これは compile → compile の再帰事故を防ぐためです。'
         ].join('\n')
       );
     }
@@ -576,7 +622,8 @@
   }
 
   global[COMPILER_NAME] = {
-    compile: compile,
+    name: COMPILER_NAME,
+    compile: compileRustToWasm,
     createBuildRequest: createBuildRequest,
     createVirtualProject: createVirtualProject,
     normalizeProjectName: normalizeProjectName,
